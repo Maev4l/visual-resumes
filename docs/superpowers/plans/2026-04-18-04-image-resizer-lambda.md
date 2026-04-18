@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the `packages/functions/image-resizer` hello-world stub with a real handler that generates a 400×400 JPEG thumbnail for every photo uploaded under `users/*/photos/*.{jpg,jpeg,png,webp}`. The thumbnail is used solely by the editor preview pane; publish-time re-encoding is Plan 5's concern.
+**Goal:** Replace the `packages/functions/image-resizer` hello-world stub with a real handler that processes every raw photo uploaded to `photo-uploads/<customId>/<resumeId>` — resizing to 600px longest side (aspect-preserving, no upscale), stripping EXIF, and encoding as WebP q80. The output lands at `users/<customId>/photos/<resumeId>.webp` and is used by both the editor preview and the renderer (embedded as a base64 data URI on publish). The raw upload is NOT deleted by this Lambda — the bucket lifecycle rule (`photo-uploads/` → 1-day expiration) handles that.
 
 **Architecture:** Container Lambda. esbuild bundles `src/` → `bin/` with `sharp` and `@aws-sdk/*` externalized; the Dockerfile installs `sharp` fresh against Linux/x86_64 at build time (guarantees the correct native binary regardless of the developer's OS). Handler is triggered by S3 `ObjectCreated:*` events filtered to `.jpg|.jpeg|.png|.webp` under `users/` (configured in Plan 1). A guard skips any key containing `-thumb.` to prevent infinite recursion when we write the thumbnail back into the same bucket.
 
@@ -117,38 +117,60 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
-import { makeThumbnail, thumbnailKeyFor } from './resize.js';
+import { processPhoto, outputKeyFor, parseUploadKey } from './resize.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const sample = fs.readFileSync(path.join(here, 'fixtures', 'test-600x400.jpg'));
 
 describe('resize', () => {
-  describe('thumbnailKeyFor', () => {
-    it('replaces the extension with -thumb.jpg and preserves the prefix', () => {
-      assert.equal(thumbnailKeyFor('users/U1/photos/R1.jpg'),  'users/U1/photos/R1-thumb.jpg');
-      assert.equal(thumbnailKeyFor('users/U1/photos/R1.jpeg'), 'users/U1/photos/R1-thumb.jpg');
-      assert.equal(thumbnailKeyFor('users/U1/photos/R1.png'),  'users/U1/photos/R1-thumb.jpg');
-      assert.equal(thumbnailKeyFor('users/U1/photos/R1.webp'), 'users/U1/photos/R1-thumb.jpg');
+  describe('parseUploadKey', () => {
+    it('extracts customId + resumeId from photo-uploads/<customId>/<resumeId>', () => {
+      assert.deepEqual(parseUploadKey('photo-uploads/U1/R1'), { customId: 'U1', resumeId: 'R1' });
+      assert.deepEqual(parseUploadKey('photo-uploads/USER-ABC/R-XYZ'), { customId: 'USER-ABC', resumeId: 'R-XYZ' });
     });
 
-    it('throws on unsupported extensions', () => {
-      assert.throws(() => thumbnailKeyFor('users/U1/photos/R1.gif'), /unsupported/);
+    it('returns null for unexpected key shapes (safety net — trigger should prevent this)', () => {
+      assert.equal(parseUploadKey('users/U1/resumes/R1.json'), null);
+      assert.equal(parseUploadKey('photo-uploads/U1'), null);
+      assert.equal(parseUploadKey('photo-uploads/U1/R1/extra'), null);
     });
   });
 
-  describe('makeThumbnail', () => {
-    it('produces a 400x400 JPEG (cover crop, quality 85)', async () => {
-      const out = await makeThumbnail(sample);
+  describe('outputKeyFor', () => {
+    it('returns the durable photo path (.webp)', () => {
+      assert.equal(outputKeyFor({ customId: 'U1', resumeId: 'R1' }), 'users/U1/photos/R1.webp');
+    });
+  });
+
+  describe('processPhoto', () => {
+    it('produces a WebP with longest side = 600px, preserving aspect ratio (600x400 → 600x400, 800x600 → 600x450)', async () => {
+      const big = await sharp({ create: { width: 800, height: 600, channels: 3, background: { r: 180, g: 40, b: 90 } } })
+        .jpeg({ quality: 85 }).toBuffer();
+      const out = await processPhoto(big);
       const meta = await sharp(out).metadata();
-      assert.equal(meta.format, 'jpeg');
-      assert.equal(meta.width, 400);
-      assert.equal(meta.height, 400);
-      // Reasonable size bounds for a flat-color 400x400 JPEG q85.
-      assert.ok(out.length > 1000 && out.length < 80_000, `unexpected size ${out.length}`);
+      assert.equal(meta.format, 'webp');
+      assert.equal(meta.width, 600);
+      assert.equal(meta.height, 450);
+    });
+
+    it('does not upscale smaller photos', async () => {
+      const small = await sharp({ create: { width: 300, height: 200, channels: 3, background: '#888' } })
+        .png().toBuffer();
+      const out = await processPhoto(small);
+      const meta = await sharp(out).metadata();
+      assert.equal(meta.format, 'webp');
+      assert.equal(meta.width, 300);
+      assert.equal(meta.height, 200);
+    });
+
+    it('accepts JPEG / PNG / WebP inputs and always outputs WebP', async () => {
+      const out = await processPhoto(sample);
+      const meta = await sharp(out).metadata();
+      assert.equal(meta.format, 'webp');
     });
 
     it('fails fast on invalid bytes', async () => {
-      await assert.rejects(() => makeThumbnail(Buffer.from('not an image')));
+      await assert.rejects(() => processPhoto(Buffer.from('not an image')));
     });
   });
 });
@@ -164,21 +186,26 @@ Run: `cd packages/functions && yarn test`
 // packages/functions/image-resizer/src/resize.js
 import sharp from 'sharp';
 
-const SUPPORTED_EXT = ['.jpg', '.jpeg', '.png', '.webp'];
+// Upload keys are: photo-uploads/<customId>/<resumeId>
+const UPLOAD_KEY_RE = /^photo-uploads\/([^/]+)\/([^/]+)$/;
 
-export const thumbnailKeyFor = (sourceKey) => {
-  const lower = sourceKey.toLowerCase();
-  const ext = SUPPORTED_EXT.find((e) => lower.endsWith(e));
-  if (!ext) throw new Error(`unsupported extension for key: ${sourceKey}`);
-  // Strip the matched extension (case-insensitive) and append -thumb.jpg
-  return sourceKey.slice(0, sourceKey.length - ext.length) + '-thumb.jpg';
+export const parseUploadKey = (key) => {
+  const m = UPLOAD_KEY_RE.exec(key);
+  return m ? { customId: m[1], resumeId: m[2] } : null;
 };
 
-export const makeThumbnail = async (inputBuffer) =>
+export const outputKeyFor = ({ customId, resumeId }) =>
+  `users/${customId}/photos/${resumeId}.webp`;
+
+/**
+ * Resize a raw photo buffer to 600px longest side (aspect-preserving, no upscale),
+ * strip metadata (including EXIF/GPS), encode as WebP q80. Returns the WebP buffer.
+ */
+export const processPhoto = async (inputBuffer) =>
   sharp(inputBuffer)
-    .rotate()                   // honor EXIF orientation
-    .resize(400, 400, { fit: 'cover' })
-    .jpeg({ quality: 85, mozjpeg: true })
+    .rotate()                                                       // honor EXIF orientation BEFORE stripping metadata
+    .resize({ width: 600, height: 600, fit: 'inside', withoutEnlargement: true })
+    .webp({ quality: 80 })
     .toBuffer();
 ```
 
@@ -231,67 +258,78 @@ const bodyOf = (buf) => ({
 });
 
 describe('image-resizer handler', () => {
-  it('creates a 400x400 -thumb.jpg next to the source', async () => {
-    s3.on(GetObjectCommand).resolves({ Body: bodyOf(sample), ContentType: 'image/jpeg' });
+  it('processes photo-uploads/<customId>/<resumeId> → users/<customId>/photos/<resumeId>.webp', async () => {
+    s3.on(GetObjectCommand).resolves({ Body: bodyOf(sample) });
     s3.on(PutObjectCommand).resolves({});
 
-    await handler(evt('users/U1/photos/R1.jpg'));
+    await handler(evt('photo-uploads/U1/R1'));
 
     const puts = s3.commandCalls(PutObjectCommand);
     assert.equal(puts.length, 1);
     const input = puts[0].args[0].input;
     assert.equal(input.Bucket, 'visual-resumes-storage');
-    assert.equal(input.Key, 'users/U1/photos/R1-thumb.jpg');
-    assert.equal(input.ContentType, 'image/jpeg');
+    assert.equal(input.Key, 'users/U1/photos/R1.webp');
+    assert.equal(input.ContentType, 'image/webp');
 
     const meta = await sharp(input.Body).metadata();
-    assert.equal(meta.width, 400);
+    assert.equal(meta.format, 'webp');
+    // 600x400 sample has longest side = 600 → fits within the 600x600 bounding box unchanged
+    assert.equal(meta.width, 600);
     assert.equal(meta.height, 400);
   });
 
-  it('skips keys already ending in -thumb.jpg (prevents recursion)', async () => {
-    await handler(evt('users/U1/photos/R1-thumb.jpg'));
+  it('skips keys that do not match photo-uploads/<id>/<id> (safety net)', async () => {
+    await handler(evt('users/U1/photos/R1.webp'));  // output prefix — should never trigger anyway
     assert.equal(s3.commandCalls(GetObjectCommand).length, 0);
     assert.equal(s3.commandCalls(PutObjectCommand).length, 0);
   });
 
-  it('skips unsupported extensions without crashing', async () => {
-    await handler(evt('users/U1/photos/R1.tiff'));
-    assert.equal(s3.commandCalls(GetObjectCommand).length, 0);
+  it('does NOT delete the source — bucket lifecycle reaps photo-uploads after 1 day', async () => {
+    s3.on(GetObjectCommand).resolves({ Body: bodyOf(sample) });
+    s3.on(PutObjectCommand).resolves({});
+
+    await handler(evt('photo-uploads/U1/R1'));
+
+    // Only the one Put (output). No DeleteObject.
+    assert.equal(s3.commandCalls(PutObjectCommand).length, 1);
+    const deleteCommand = s3.commandCalls().find(
+      (c) => c.args[0].constructor.name === 'DeleteObjectCommand',
+    );
+    assert.equal(deleteCommand, undefined);
   });
 
-  it('skips malformed images without crashing the invocation', async () => {
-    s3.on(GetObjectCommand).resolves({ Body: bodyOf(Buffer.from('not an image')), ContentType: 'image/jpeg' });
-    await handler(evt('users/U1/photos/R1.jpg'));
-    // Did NOT attempt a PUT.
+  it('swallows malformed-image errors instead of failing (no retry storm on bad uploads)', async () => {
+    s3.on(GetObjectCommand).resolves({ Body: bodyOf(Buffer.from('not an image')) });
+    await handler(evt('photo-uploads/U1/R1'));
+    // Source read happened; no Put because resize threw.
     assert.equal(s3.commandCalls(PutObjectCommand).length, 0);
   });
 
   it('handles multiple Records in one event', async () => {
-    s3.on(GetObjectCommand).resolves({ Body: bodyOf(sample), ContentType: 'image/jpeg' });
+    s3.on(GetObjectCommand).resolves({ Body: bodyOf(sample) });
     s3.on(PutObjectCommand).resolves({});
 
     await handler({
       Records: [
-        { eventName: 'ObjectCreated:Put', s3: { bucket: { name: 'visual-resumes-storage' }, object: { key: 'users/U1/photos/R1.jpg' } } },
-        { eventName: 'ObjectCreated:Put', s3: { bucket: { name: 'visual-resumes-storage' }, object: { key: 'users/U2/photos/R9.png' } } },
+        { eventName: 'ObjectCreated:Put', s3: { bucket: { name: 'visual-resumes-storage' }, object: { key: 'photo-uploads/U1/R1' } } },
+        { eventName: 'ObjectCreated:Put', s3: { bucket: { name: 'visual-resumes-storage' }, object: { key: 'photo-uploads/U2/R9' } } },
       ],
     });
 
     const puts = s3.commandCalls(PutObjectCommand).map((c) => c.args[0].input.Key).sort();
-    assert.deepEqual(puts, ['users/U1/photos/R1-thumb.jpg', 'users/U2/photos/R9-thumb.jpg']);
+    assert.deepEqual(puts, ['users/U1/photos/R1.webp', 'users/U2/photos/R9.webp']);
   });
 
   it('URL-decodes S3 keys (S3 delivers percent-encoded keys)', async () => {
-    s3.on(GetObjectCommand).resolves({ Body: bodyOf(sample), ContentType: 'image/jpeg' });
+    s3.on(GetObjectCommand).resolves({ Body: bodyOf(sample) });
     s3.on(PutObjectCommand).resolves({});
 
-    await handler(evt('users/U%201/photos/R%20X.jpg'));
+    await handler(evt('photo-uploads/U%201/R%20X'));
 
     const get = s3.commandCalls(GetObjectCommand)[0].args[0].input;
-    assert.equal(get.Key, 'users/U 1/photos/R X.jpg');
+    assert.equal(get.Key, 'photo-uploads/U 1/R X');
     const put = s3.commandCalls(PutObjectCommand)[0].args[0].input;
-    assert.equal(put.Key, 'users/U 1/photos/R X-thumb.jpg');
+    assert.equal(put.Key, 'users/U 1/photos/R X.webp');
   });
 });
 ```
@@ -303,17 +341,9 @@ describe('image-resizer handler', () => {
 ```javascript
 // packages/functions/image-resizer/src/index.js
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { makeThumbnail, thumbnailKeyFor } from './resize.js';
+import { processPhoto, outputKeyFor, parseUploadKey } from './resize.js';
 
 const s3 = new S3Client({});
-
-const SUPPORTED_SUFFIXES = ['.jpg', '.jpeg', '.png', '.webp'];
-
-const isCandidate = (key) => {
-  const lower = key.toLowerCase();
-  if (lower.includes('-thumb.')) return false;              // prevent recursion
-  return SUPPORTED_SUFFIXES.some((s) => lower.endsWith(s));
-};
 
 const processRecord = async (record) => {
   const bucket = record.s3?.bucket?.name;
@@ -324,28 +354,33 @@ const processRecord = async (record) => {
   }
   const key = decodeURIComponent(keyRaw.replace(/\+/g, ' '));
 
-  if (!isCandidate(key)) {
-    console.log(`image-resizer: skip ${key}`);
+  const parsed = parseUploadKey(key);
+  if (!parsed) {
+    // Safety net — the S3 trigger filter should already restrict to photo-uploads/*.
+    console.log(`image-resizer: skip (unexpected key shape) ${key}`);
     return;
   }
+
+  const outputKey = outputKeyFor(parsed);
 
   try {
     const obj = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
     const buf = Buffer.from(await obj.Body.transformToByteArray());
-    const thumb = await makeThumbnail(buf);
-    const thumbKey = thumbnailKeyFor(key);
+    const webp = await processPhoto(buf);
 
     await s3.send(new PutObjectCommand({
       Bucket: bucket,
-      Key: thumbKey,
-      Body: thumb,
-      ContentType: 'image/jpeg',
-      CacheControl: 'private, max-age=3600',
+      Key: outputKey,
+      Body: webp,
+      ContentType: 'image/webp',
+      CacheControl: 'private, max-age=300',
     }));
 
-    console.log(`image-resizer: wrote ${thumbKey} (${thumb.length} bytes)`);
+    console.log(`image-resizer: wrote ${outputKey} (${webp.length} bytes)`);
+    // NOTE: we do NOT delete the source — the bucket lifecycle rule reaps photo-uploads
+    // after 1 day. Fewer IAM grants, fewer calls, identical end state.
   } catch (err) {
-    // Swallow per-record errors: the trigger is best-effort, we don't want to retry-storm on bad images.
+    // Swallow per-record errors so malformed uploads don't trigger a retry storm.
     console.error(`image-resizer: failed for ${key}:`, err?.message ?? err);
   }
 };
@@ -370,7 +405,7 @@ Expected: clean.
 
 ```bash
 git add packages/functions/image-resizer/src/index.js packages/functions/image-resizer/src/index.test.js
-git commit -m "feat(image-resizer): handler — S3 event → sharp thumbnail"
+git commit -m "feat(image-resizer): handler — photo-uploads/* → users/*/photos/*.webp"
 ```
 
 ---
@@ -455,7 +490,10 @@ cat > "$DIR/bin/package.json" <<'EOF'
 { "type": "module" }
 EOF
 
-docker build --platform linux/amd64 -t "visual-resumes-image-resizer:$TAG" "$DIR"
+# --provenance=false + --sbom=false: AWS Lambda only accepts Docker v2 schema 2 manifests.
+# Modern buildx defaults to OCI + attestations, which Lambda rejects.
+docker buildx build --platform linux/arm64 --provenance=false --sbom=false --load \
+  -t "visual-resumes-image-resizer:$TAG" "$DIR"
 echo "built image visual-resumes-image-resizer:$TAG"
 ```
 
@@ -504,34 +542,42 @@ Expected: only `module.image_resizer.aws_lambda_function.this` updates.
 
 - [ ] **Step 3: Live smoke test**
 
-Upload a test JPEG via the aws CLI under a fake user:
+Upload a test JPEG to the photo-uploads prefix as if the editor had used a presigned URL:
 
 ```bash
 STORAGE=$(terraform -chdir=packages/infrastructure output -raw storage_bucket)
 aws s3 cp packages/functions/image-resizer/src/fixtures/test-600x400.jpg \
-  "s3://$STORAGE/users/TESTUSER/photos/SMOKE.jpg"
+  "s3://$STORAGE/photo-uploads/TESTUSER/SMOKE"
 
-# Wait ~2s for the event to fire, then list:
+# Wait ~3s for the event to fire and image-resizer to finish.
 sleep 3
 aws s3 ls "s3://$STORAGE/users/TESTUSER/photos/"
 ```
 
-Expected: both `SMOKE.jpg` and `SMOKE-thumb.jpg` are present.
+Expected: `SMOKE.webp` present.
 
-- [ ] **Step 4: Check the thumbnail dimensions**
+- [ ] **Step 4: Check the output is WebP 600px**
 
 ```bash
-aws s3 cp "s3://$STORAGE/users/TESTUSER/photos/SMOKE-thumb.jpg" /tmp/thumb.jpg
-node -e "import('sharp').then(s=>s.default('/tmp/thumb.jpg').metadata().then(console.log))"
+aws s3 cp "s3://$STORAGE/users/TESTUSER/photos/SMOKE.webp" /tmp/smoke.webp
+node -e "import('sharp').then(s=>s.default('/tmp/smoke.webp').metadata().then(console.log))"
 ```
 
-Expected: `width: 400, height: 400, format: 'jpeg'`.
+Expected: `format: 'webp'`, `width: 600`, `height: 400` (aspect preserved from the 600x400 sample).
 
-- [ ] **Step 5: Cleanup test fixtures**
+- [ ] **Step 5: Verify the source is still there (lifecycle will reap it within 1 day)**
 
 ```bash
-aws s3 rm "s3://$STORAGE/users/TESTUSER/photos/SMOKE.jpg"
-aws s3 rm "s3://$STORAGE/users/TESTUSER/photos/SMOKE-thumb.jpg"
+aws s3 ls "s3://$STORAGE/photo-uploads/TESTUSER/"
+```
+
+Expected: `SMOKE` still present. If you don't want to wait for the lifecycle rule, you can delete it manually (but in production this is never needed).
+
+- [ ] **Step 6: Cleanup test fixtures**
+
+```bash
+aws s3 rm "s3://$STORAGE/photo-uploads/TESTUSER/SMOKE"
+aws s3 rm "s3://$STORAGE/users/TESTUSER/photos/SMOKE.webp"
 ```
 
 ---
@@ -541,10 +587,12 @@ aws s3 rm "s3://$STORAGE/users/TESTUSER/photos/SMOKE-thumb.jpg"
 **Files:** none.
 
 - [ ] **Step 1: Spec coverage**
-- [ ] Fires on `users/*/photos/*.{jpg,jpeg,png,webp}` only (controlled by S3 notification filters in Plan 1).
-- [ ] Output: 400×400 JPEG q85 at `-thumb.jpg`.
-- [ ] Does NOT process `-thumb.jpg` (recursion guard).
-- [ ] Tolerant of malformed input (logs + swallows — matches "no retry storm" expectation).
+- [ ] Fires on `photo-uploads/*` (controlled by S3 notification prefix filter in Plan 1).
+- [ ] Output: 600px-longest-side WebP q80 (aspect-preserving, no upscale).
+- [ ] Output path: `users/<customId>/photos/<resumeId>.webp`.
+- [ ] Does NOT delete the source — bucket lifecycle rule handles it after 1 day.
+- [ ] No recursion risk — input and output live in different top-level prefixes.
+- [ ] Tolerant of malformed input (logs + swallows — no retry storm).
 - [ ] URL-decodes S3 keys.
 - [ ] Handles multi-record events.
 
@@ -559,8 +607,8 @@ aws s3 rm "s3://$STORAGE/users/TESTUSER/photos/SMOKE-thumb.jpg"
 - [ ] `yarn test` green (unit + integration handler tests).
 - [ ] `yarn lint` clean.
 - [ ] Image size under 300 MB (sharp's native deps are ~30 MB).
-- [ ] Live smoke test produced a 400×400 `-thumb.jpg`.
-- [ ] Invocation on an already-`-thumb.jpg` key is a no-op (confirmed in unit test).
+- [ ] Live smoke test produced a `SMOKE.webp` at the expected output path.
+- [ ] Image-resizer never calls DeleteObject (IAM grant confirms this — no `s3:DeleteObject` in the policy).
 
 ## Out of scope
 

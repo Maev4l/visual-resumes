@@ -517,7 +517,7 @@ const templateSource = `<!doctype html>
     {{/ifEquals}}
   </section>
 {{/each}}
-{{#if photoKey}}<img src="./{{published.slug}}.jpg" alt="">{{/if}}
+{{#if _photoSrc}}<img src="{{_photoSrc}}" alt="">{{/if}}
 </body></html>`;
 
 const css = `.entry { break-inside: avoid; }`;
@@ -814,8 +814,8 @@ git commit -m "feat(shared): Node-only disk loader for templates"
               {{#if data.location}}<li>{{data.location}}</li>{{/if}}
               {{#each data.links}}<li><a href="{{url}}">{{label}}</a></li>{{/each}}
             </ul>
-            {{#if ../photoKey}}{{#if _meta.supportsPhoto}}
-              <img class="photo" src="./{{../published.slug}}.jpg" alt="" />
+            {{#if ../_photoSrc}}{{#if _meta.supportsPhoto}}
+              <img class="photo" src="{{../_photoSrc}}" alt="" />
             {{/if}}{{/if}}
           </header>
         {{/ifEquals}}
@@ -1044,8 +1044,8 @@ git commit -m "feat(templates): monaco (single-column classic)"
         {{#each sections}}
           {{#ifEquals type "contact"}}
             <div class="contact">
-              {{#if ../photoKey}}{{#if _meta.supportsPhoto}}
-                <img class="photo" src="./{{../published.slug}}.jpg" alt="" />
+              {{#if ../_photoSrc}}{{#if _meta.supportsPhoto}}
+                <img class="photo" src="{{../_photoSrc}}" alt="" />
               {{/if}}{{/if}}
               <h1 class="name">{{data.name}}</h1>
               <ul>

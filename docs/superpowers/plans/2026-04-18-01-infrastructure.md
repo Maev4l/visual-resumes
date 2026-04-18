@@ -328,7 +328,13 @@ cat > "$DIR/bin/package.json" <<'EOF'
 { "type": "module" }
 EOF
 
-docker build --platform linux/amd64 -t "visual-resumes-renderer:$TAG" "$DIR"
+# --provenance=false + --sbom=false: AWS Lambda only accepts Docker v2 schema 2 manifests.
+# Modern buildx defaults to OCI + attestations, which Lambda rejects with
+# "The image manifest, config or layer media type ... is not supported".
+docker buildx build --platform linux/arm64 \
+  --provenance=false --sbom=false \
+  --load \
+  -t "visual-resumes-renderer:$TAG" "$DIR"
 echo "built image visual-resumes-renderer:$TAG"
 ```
 
@@ -386,7 +392,13 @@ cat > "$DIR/bin/package.json" <<'EOF'
 { "type": "module" }
 EOF
 
-docker build --platform linux/amd64 -t "visual-resumes-image-resizer:$TAG" "$DIR"
+# --provenance=false + --sbom=false: AWS Lambda only accepts Docker v2 schema 2 manifests.
+# Modern buildx defaults to OCI + attestations, which Lambda rejects with
+# "The image manifest, config or layer media type ... is not supported".
+docker buildx build --platform linux/arm64 \
+  --provenance=false --sbom=false \
+  --load \
+  -t "visual-resumes-image-resizer:$TAG" "$DIR"
 echo "built image visual-resumes-image-resizer:$TAG"
 ```
 
@@ -658,6 +670,13 @@ locals {
   bucket_editor    = "visual-resumes-editor"
   bucket_storage   = "visual-resumes-storage"
   bucket_published = "visual-resumes-published"
+
+  # S3 bucket ARNs are deterministic from the name. Precompute so IAM / bucket-policy
+  # documents can reference `local.bucket_*_arn` instead of the resource attribute —
+  # keeps all bucket naming anchored to the three string locals above.
+  bucket_editor_arn    = "arn:aws:s3:::${local.bucket_editor}"
+  bucket_storage_arn   = "arn:aws:s3:::${local.bucket_storage}"
+  bucket_published_arn = "arn:aws:s3:::${local.bucket_published}"
 }
 
 # ----- Editor bucket (Vite build output; CloudFront-fronted via OAC; default behavior) -----
@@ -702,6 +721,21 @@ resource "aws_s3_bucket_cors_configuration" "storage" {
     allowed_headers = ["*"]
     expose_headers  = ["ETag"]
     max_age_seconds = 300
+  }
+}
+
+# Raw photo uploads land under photo-uploads/<customId>/<resumeId>. The image-resizer Lambda
+# processes them within seconds. This rule is a backstop — if image-resizer fails, S3 reaps
+# stray uploads after 1 day so the bucket doesn't accumulate junk. (The resizer doesn't delete
+# sources itself — no IAM grant, no code — the lifecycle handles it.)
+resource "aws_s3_bucket_lifecycle_configuration" "storage" {
+  bucket = aws_s3_bucket.storage.id
+
+  rule {
+    id     = "expire-photo-uploads"
+    status = "Enabled"
+    filter { prefix = "photo-uploads/" }
+    expiration { days = 1 }
   }
 }
 
@@ -792,22 +826,28 @@ data "aws_iam_policy_document" "api" {
   statement {
     sid       = "StorageBucketUserPrefixCrud"
     actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
-    resources = ["${aws_s3_bucket.storage.arn}/users/*"]
+    resources = ["${local.bucket_storage_arn}/users/*"]
   }
   statement {
     sid       = "StorageBucketList"
     actions   = ["s3:ListBucket"]
-    resources = [aws_s3_bucket.storage.arn]
+    resources = [local.bucket_storage_arn]
     condition {
       test     = "StringLike"
       variable = "s3:prefix"
       values   = ["users/*"]
     }
   }
+  # Presigned PUT URL for photo upload + cleanup on resume delete.
+  statement {
+    sid       = "StorageBucketPhotoUploads"
+    actions   = ["s3:PutObject", "s3:DeleteObject"]
+    resources = ["${local.bucket_storage_arn}/photo-uploads/*"]
+  }
   statement {
     sid       = "PublishedBucketDeleteForRevoke"
     actions   = ["s3:DeleteObject"]
-    resources = ["${aws_s3_bucket.published.arn}/resumes/*"]
+    resources = ["${local.bucket_published_arn}/resumes/*"]
   }
   statement {
     sid       = "CloudFrontInvalidation"
@@ -826,12 +866,12 @@ data "aws_iam_policy_document" "renderer" {
   statement {
     sid       = "StorageBucketRead"
     actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.storage.arn}/users/*"]
+    resources = ["${local.bucket_storage_arn}/users/*"]
   }
   statement {
     sid       = "PublishedBucketWrite"
     actions   = ["s3:PutObject", "s3:DeleteObject"]
-    resources = ["${aws_s3_bucket.published.arn}/resumes/*"]
+    resources = ["${local.bucket_published_arn}/resumes/*"]
   }
   statement {
     sid       = "CloudFrontInvalidation"
@@ -847,10 +887,17 @@ resource "aws_iam_policy" "renderer" {
 
 # ----- image-resizer Lambda policy -----
 data "aws_iam_policy_document" "image_resizer" {
+  # Read the raw upload. No DeleteObject — the bucket lifecycle rule reaps uploads after 1 day.
   statement {
-    sid       = "StoragePhotosReadWrite"
-    actions   = ["s3:GetObject", "s3:PutObject"]
-    resources = ["${aws_s3_bucket.storage.arn}/users/*/photos/*"]
+    sid       = "PhotoUploadsRead"
+    actions   = ["s3:GetObject"]
+    resources = ["${local.bucket_storage_arn}/photo-uploads/*"]
+  }
+  # Write the processed WebP to the user's durable photos folder.
+  statement {
+    sid       = "PhotosWrite"
+    actions   = ["s3:PutObject"]
+    resources = ["${local.bucket_storage_arn}/users/*/photos/*"]
   }
 }
 
@@ -897,16 +944,15 @@ module "api" {
     hash = filebase64sha256("${path.module}/../functions/api/bin/index.js")
   }
 
-  architecture          = "x86_64"
+  architecture          = "arm64"
   memory_size           = 256
   timeout               = 10
   log_retention_in_days = var.log_retention_in_days
 
   environment_variables = {
-    RESUMES_STORAGE_BUCKET   = aws_s3_bucket.storage.bucket
-    RESUMES_PUBLISHED_BUCKET = aws_s3_bucket.published.bucket
+    RESUMES_STORAGE_BUCKET   = local.bucket_storage
+    RESUMES_PUBLISHED_BUCKET = local.bucket_published
     CLOUDFRONT_DIST_ID       = aws_cloudfront_distribution.app.id
-    PUBLIC_HOST              = var.domain_name
   }
 
   additional_policy_arns = [aws_iam_policy.api.arn]
@@ -922,23 +968,25 @@ module "renderer" {
     uri = "${aws_ecr_repository.renderer.repository_url}:${var.image_tag}"
   }
 
-  architecture          = "x86_64"
+  architecture          = "arm64"
   memory_size           = 2048
   timeout               = 60
   log_retention_in_days = var.log_retention_in_days
 
   environment_variables = {
-    RESUMES_STORAGE_BUCKET   = aws_s3_bucket.storage.bucket
-    RESUMES_PUBLISHED_BUCKET = aws_s3_bucket.published.bucket
-    PUBLIC_HOST              = var.domain_name
+    RESUMES_STORAGE_BUCKET   = local.bucket_storage
+    RESUMES_PUBLISHED_BUCKET = local.bucket_published
+    CLOUDFRONT_DIST_ID       = aws_cloudfront_distribution.app.id
   }
 
   additional_policy_arns = [aws_iam_policy.renderer.arn]
 }
 
 # ----- image-resizer Lambda (container) + S3 trigger -----
-# When a photo is re-encoded into a thumbnail (*-thumb.jpg), the handler (Plan 4)
-# must skip keys containing "-thumb." to avoid recursive invocation.
+# Triggered on writes to photo-uploads/<customId>/<resumeId>. Produces a 600px WebP at
+# users/<customId>/photos/<resumeId>.webp. No recursion risk (trigger prefix and output
+# prefix don't overlap); no source cleanup (the bucket lifecycle rule reaps photo-uploads
+# after 1 day — Plan 4 handler doesn't DeleteObject).
 
 module "image_resizer" {
   source        = "github.com/Maev4l/terraform-modules//modules/lambda-function?ref=v1.7.0"
@@ -948,15 +996,12 @@ module "image_resizer" {
     uri = "${aws_ecr_repository.image_resizer.repository_url}:${var.image_tag}"
   }
 
-  architecture          = "x86_64"
+  architecture          = "arm64"
   memory_size           = 1024
   timeout               = 30
   log_retention_in_days = var.log_retention_in_days
 
-  environment_variables = {
-    RESUMES_STORAGE_BUCKET = aws_s3_bucket.storage.bucket
-  }
-
+  # No env vars: the S3 event payload carries bucket + key, and the handler reads both from the event.
   additional_policy_arns = [aws_iam_policy.image_resizer.arn]
 }
 
@@ -971,11 +1016,9 @@ module "image_resizer_s3_trigger" {
 
   events = ["s3:ObjectCreated:*"]
 
+  # Raw uploads land under photo-uploads/<customId>/<resumeId> (no extension — browser sets content-type).
   filters = [
-    { prefix = "users/", suffix = ".jpg" },
-    { prefix = "users/", suffix = ".jpeg" },
-    { prefix = "users/", suffix = ".png" },
-    { prefix = "users/", suffix = ".webp" },
+    { prefix = "photo-uploads/" },
   ]
 }
 
@@ -1149,7 +1192,7 @@ resource "aws_s3_bucket_policy" "editor_oac" {
       Effect    = "Allow"
       Principal = { Service = "cloudfront.amazonaws.com" }
       Action    = "s3:GetObject"
-      Resource  = "${aws_s3_bucket.editor.arn}/*"
+      Resource  = "${local.bucket_editor_arn}/*"
       Condition = {
         StringEquals = { "AWS:SourceArn" = aws_cloudfront_distribution.app.arn }
       }
@@ -1166,7 +1209,7 @@ resource "aws_s3_bucket_policy" "published_oac" {
       Effect    = "Allow"
       Principal = { Service = "cloudfront.amazonaws.com" }
       Action    = "s3:GetObject"
-      Resource  = "${aws_s3_bucket.published.arn}/*"
+      Resource  = "${local.bucket_published_arn}/*"
       Condition = {
         StringEquals = { "AWS:SourceArn" = aws_cloudfront_distribution.app.arn }
       }
@@ -1232,17 +1275,17 @@ output "region" {
 
 output "editor_bucket" {
   description = "Editor SPA bucket (Vite build output). CloudFront-fronted via OAC; default behavior."
-  value       = aws_s3_bucket.editor.bucket
+  value       = local.bucket_editor
 }
 
 output "storage_bucket" {
   description = "App-internal storage (resume JSON + photo originals + thumbnails). IAM-only."
-  value       = aws_s3_bucket.storage.bucket
+  value       = local.bucket_storage
 }
 
 output "published_bucket" {
   description = "Rendered resume artifacts. CloudFront-fronted via OAC; /resumes/* behavior."
-  value       = aws_s3_bucket.published.bucket
+  value       = local.bucket_published
 }
 
 output "cloudfront_distribution_id" {

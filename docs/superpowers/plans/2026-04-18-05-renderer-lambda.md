@@ -6,7 +6,7 @@
 
 **Architecture:** Container Lambda. The shared `packages/shared/renderer.node.js` loads templates from disk; templates are copied into the image at build time (under `/var/task/templates`). PDF generation uses `puppeteer-core` + `@sparticuz/chromium`. The photo is re-encoded via `sharp` (longest side 600 px, JPEG q85). Slug is 12-char nanoid with alphabet `0123456789a-z`, generated on first publish and preserved on republish. Writes back to the resume JSON use conditional S3 writes so a concurrent save from the editor doesn't get clobbered.
 
-**Tech Stack:** Node.js 22 (ESM), `puppeteer-core`, `@sparticuz/chromium`, `sharp`, `nanoid`, `@aws-sdk/client-s3`, `@aws-sdk/client-cloudfront`, esbuild, Docker (linux/amd64), `node --test` with handcrafted browser stubs.
+**Tech Stack:** Node.js 22 (ESM), `puppeteer-core`, `@sparticuz/chromium`, `nanoid`, `@aws-sdk/client-s3`, `@aws-sdk/client-cloudfront`, esbuild, Docker (linux/amd64), `node --test` with handcrafted browser stubs. **No sharp** — the image-resizer Lambda already produced the WebP the renderer needs.
 
 **Repo this plan runs in:** `visual-resumes`.
 
@@ -15,7 +15,7 @@
   - Plan 1 wired `module.renderer` + the `POST /api/resumes/{id}/publish` route via `lambda-trigger-apigw`.
   - Plan 2 shipped `packages/shared/renderer.node.js` + `packages/templates/{monaco,modern}`.
   - Plan 3 added esbuild + aws-sdk-client-mock to `packages/functions/package.json`.
-  - Plan 4 added `sharp` to `packages/functions/package.json`.
+  - Plan 4 produces `users/<customId>/photos/<resumeId>.webp` via image-resizer. The renderer only READS those.
 
 ---
 
@@ -29,13 +29,10 @@ packages/functions/
     │   ├── index.js                         # entry (replaces stub)
     │   ├── publish.js                       # orchestrator
     │   ├── browser.js                       # chromium launcher (DI seam for tests)
-    │   ├── photo.js                         # sharp re-encode
     │   ├── slug.js                          # nanoid wrapper with custom alphabet
-    │   ├── public-urls.js                   # build the two public URLs returned to the editor
+    │   ├── published-keys.js                # slug → S3 key map (html + pdf)
     │   ├── local-render.js                  # dev-only: HTML to stdout, no PDF
     │   ├── *.test.js                        # co-located unit tests
-    │   ├── fixtures/
-    │   │   └── mini-photo.jpg               # re-used from image-resizer if available; else regenerated
     │   └── index.test.js
     ├── bin/                                 # esbuild output + templates copy (gitignored)
     ├── package.runtime.json                 # deps installed in container
@@ -60,7 +57,7 @@ Inside `packages/functions/`:
 yarn add --exact \
   puppeteer-core@24.1.0 \
   @sparticuz/chromium@133.0.0
-# nanoid was added in Plan 2; sharp in Plan 4 — confirm with `grep` if unsure.
+# nanoid was added in Plan 2.
 ```
 
 Pin rationale: `@sparticuz/chromium@133` bundles a Chromium build that works with Node 22 and with the pinned `puppeteer-core`. If the user publishes a different tag, match it.
@@ -135,34 +132,27 @@ git commit -m "feat(renderer): 12-char slug generator"
 
 ---
 
-### Task 3: `src/public-urls.js` (TDD)
+### Task 3: `src/published-keys.js` (TDD)
 
 **Files:**
-- Create: `packages/functions/renderer/src/public-urls.test.js`
-- Create: `packages/functions/renderer/src/public-urls.js`
+- Create: `packages/functions/renderer/src/published-keys.test.js`
+- Create: `packages/functions/renderer/src/published-keys.js`
+
+> Public URLs are formatted client-side by the editor (it already has `publicHost` in its runtime config). The renderer only returns a slug.
 
 - [ ] **Step 1: Failing test**
 
 ```javascript
-// packages/functions/renderer/src/public-urls.test.js
+// packages/functions/renderer/src/published-keys.test.js
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { publicUrls, publishedKeys } from './public-urls.js';
+import { publishedKeys } from './published-keys.js';
 
-describe('public-urls', () => {
-  it('publishedKeys', () => {
+describe('published-keys', () => {
+  it('builds slug-based S3 keys for the two artifacts (html + pdf — photo is embedded inline)', () => {
     assert.deepEqual(publishedKeys('abc123def456'), {
       html: 'resumes/abc123def456.html',
       pdf:  'resumes/abc123def456.pdf',
-      jpg:  'resumes/abc123def456.jpg',
-    });
-  });
-
-  it('publicUrls builds the three public URLs from PUBLIC_HOST', () => {
-    assert.deepEqual(publicUrls({ publicHost: 'visual-resumes.isnan.eu', slug: 'abc123def456' }), {
-      html: 'https://visual-resumes.isnan.eu/resumes/abc123def456.html',
-      pdf:  'https://visual-resumes.isnan.eu/resumes/abc123def456.pdf',
-      jpg:  'https://visual-resumes.isnan.eu/resumes/abc123def456.jpg',
     });
   });
 });
@@ -171,106 +161,25 @@ describe('public-urls', () => {
 - [ ] **Step 2: Implement**
 
 ```javascript
-// packages/functions/renderer/src/public-urls.js
+// packages/functions/renderer/src/published-keys.js
 export const publishedKeys = (slug) => ({
   html: `resumes/${slug}.html`,
   pdf:  `resumes/${slug}.pdf`,
-  jpg:  `resumes/${slug}.jpg`,
-});
-
-export const publicUrls = ({ publicHost, slug }) => ({
-  html: `https://${publicHost}/resumes/${slug}.html`,
-  pdf:  `https://${publicHost}/resumes/${slug}.pdf`,
-  jpg:  `https://${publicHost}/resumes/${slug}.jpg`,
 });
 ```
 
 - [ ] **Step 3: Run — pass; commit**
 
 ```bash
-git add packages/functions/renderer/src/public-urls.js packages/functions/renderer/src/public-urls.test.js
+git add packages/functions/renderer/src/published-keys.js packages/functions/renderer/src/published-keys.test.js
 git commit -m "feat(renderer): public URL + key helpers"
 ```
 
 ---
 
-### Task 4: `src/photo.js` — publish-time re-encode (TDD)
+### Task 4: *(deleted — no publish-time photo re-encode)*
 
-**Files:**
-- Create: `packages/functions/renderer/src/photo.test.js`
-- Create: `packages/functions/renderer/src/photo.js`
-- Create: `packages/functions/renderer/src/fixtures/mini-photo.jpg` (reuses Plan 4 approach)
-
-- [ ] **Step 1: Generate a fixture image (800×600 so we can verify the long-side clamp)**
-
-```bash
-node -e "
-  import('sharp').then(async ({default: sharp}) => {
-    const buf = await sharp({ create: { width: 800, height: 600, channels: 3, background: { r: 40, g: 120, b: 180 } } })
-      .jpeg({ quality: 85 }).toBuffer();
-    require('fs').writeFileSync('packages/functions/renderer/src/fixtures/mini-photo.jpg', buf);
-    console.log('wrote', buf.length, 'bytes');
-  });
-" --input-type=commonjs
-```
-
-- [ ] **Step 2: Failing test**
-
-```javascript
-// packages/functions/renderer/src/photo.test.js
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import sharp from 'sharp';
-import { reencodePublishedPhoto } from './photo.js';
-
-const here = path.dirname(fileURLToPath(import.meta.url));
-const big = fs.readFileSync(path.join(here, 'fixtures', 'mini-photo.jpg'));
-
-describe('photo', () => {
-  it('clamps long side to 600 px, keeps aspect ratio', async () => {
-    const out = await reencodePublishedPhoto(big);
-    const meta = await sharp(out).metadata();
-    assert.equal(meta.width, 600);
-    assert.equal(meta.height, 450);  // 800x600 → 600x450
-    assert.equal(meta.format, 'jpeg');
-  });
-
-  it('leaves small images untouched on dimensions but re-encodes to JPEG', async () => {
-    const small = await sharp({ create: { width: 300, height: 200, channels: 3, background: '#888' } }).png().toBuffer();
-    const out = await reencodePublishedPhoto(small);
-    const meta = await sharp(out).metadata();
-    assert.equal(meta.width, 300);
-    assert.equal(meta.height, 200);
-    assert.equal(meta.format, 'jpeg');
-  });
-});
-```
-
-- [ ] **Step 3: Implement**
-
-```javascript
-// packages/functions/renderer/src/photo.js
-import sharp from 'sharp';
-
-export const reencodePublishedPhoto = async (inputBuffer) =>
-  sharp(inputBuffer)
-    .rotate()                                    // honor EXIF
-    .resize({ width: 600, height: 600, fit: 'inside', withoutEnlargement: true })
-    .jpeg({ quality: 85, mozjpeg: true })
-    .toBuffer();
-```
-
-- [ ] **Step 4: Run — pass; commit**
-
-```bash
-git add packages/functions/renderer/src/photo.js \
-        packages/functions/renderer/src/photo.test.js \
-        packages/functions/renderer/src/fixtures/mini-photo.jpg
-git commit -m "feat(renderer): publish-time photo re-encode (<=600px, JPEG q85)"
-```
+This task previously had the renderer re-encode the original photo to JPEG at publish time. It's gone: the image-resizer Lambda now produces the only photo we need (a 600px WebP at `users/<customId>/photos/<resumeId>.webp`), and the renderer just base64-encodes it into the HTML. No `photo.js`, no `sharp` dependency in the renderer container.
 
 ---
 
@@ -412,7 +321,6 @@ const runPublish = (resume, overrides = {}) =>
     storageBucket: 'visual-resumes-storage',
     publishedBucket: 'visual-resumes-published',
     cloudfrontDistId: 'DIST',
-    publicHost: 'visual-resumes.isnan.eu',
     htmlToPdf: fakeHtmlToPdf,
     ...overrides,
   });
@@ -428,8 +336,7 @@ describe('publish', () => {
 
     // New slug assigned
     assert.match(out.slug, /^[0-9a-z]{12}$/);
-    assert.equal(out.htmlUrl, `https://visual-resumes.isnan.eu/resumes/${out.slug}.html`);
-    assert.equal(out.pdfUrl,  `https://visual-resumes.isnan.eu/resumes/${out.slug}.pdf`);
+    assert.equal(out.hasPhoto, false);
 
     // PutObjects: html + pdf + resume-back-write (no jpg — no photoKey)
     const puts = s3.commandCalls(PutObjectCommand).map((c) => c.args[0].input);
@@ -463,47 +370,45 @@ describe('publish', () => {
     assert.equal(out.slug, 'existingsslug');
   });
 
-  it('uploads a re-encoded JPG when photoKey is set', async () => {
-    const photoBuf = await sharp({ create: { width: 400, height: 400, channels: 3, background: '#123456' } })
-      .jpeg({ quality: 85 }).toBuffer();
-
-    const resume = baseResume({ photoKey: 'users/U1/photos/R1.jpg' });
+  it('embeds the photo inline as a base64 data URI when photoKey is set; does NOT write a jpg to published', async () => {
+    const webpBytes = Buffer.from([0xaa, 0xbb, 0xcc]);  // any bytes — we just check passthrough
+    const resume = baseResume({ photoKey: 'users/U1/photos/R1.webp' });
 
     s3.on(GetObjectCommand, { Bucket: 'visual-resumes-storage', Key: 'users/U1/resumes/R1.json' })
       .resolves({ Body: bodyOf(JSON.stringify(resume)), ETag: '"e"' });
-    s3.on(GetObjectCommand, { Bucket: 'visual-resumes-storage', Key: 'users/U1/photos/R1.jpg' })
-      .resolves({ Body: bufferBodyOf(photoBuf), ContentType: 'image/jpeg' });
+    s3.on(GetObjectCommand, { Bucket: 'visual-resumes-storage', Key: 'users/U1/photos/R1.webp' })
+      .resolves({ Body: bufferBodyOf(webpBytes) });
     s3.on(PutObjectCommand).resolves({});
     cf.on(CreateInvalidationCommand).resolves({});
 
-    const out = await runPublish(null);
+    const out = await runPublish();
+    assert.equal(out.hasPhoto, true);
 
     const puts = s3.commandCalls(PutObjectCommand).map((c) => c.args[0].input);
-    const jpgPut = puts.find((p) => p.Key === `resumes/${out.slug}.jpg`);
-    assert.ok(jpgPut, 'jpg put');
-    assert.equal(jpgPut.ContentType, 'image/jpeg');
-    const meta = await sharp(jpgPut.Body).metadata();
-    assert.equal(meta.format, 'jpeg');
-    assert.equal(meta.width, 400); // below cap, unchanged
+    // No separate .jpg / .webp artifact in the published bucket.
+    assert.equal(puts.find((p) => p.Key?.endsWith('.jpg') || p.Key?.endsWith('.webp')), undefined);
+    // HTML body contains the data URI.
+    const htmlPut = puts.find((p) => p.Key === `resumes/${out.slug}.html`);
+    const expected = `data:image/webp;base64,${webpBytes.toString('base64')}`;
+    assert.ok(htmlPut.Body.includes(expected), 'HTML should inline the photo as a data URI');
   });
 
-  it('tolerates a missing photo on republish without failing', async () => {
-    const resume = baseResume({ photoKey: 'users/U1/photos/R1.jpg' });
+  it('tolerates a missing photo on republish — HTML still renders, just without the photo', async () => {
+    const resume = baseResume({ photoKey: 'users/U1/photos/R1.webp' });
     s3.on(GetObjectCommand, { Bucket: 'visual-resumes-storage', Key: 'users/U1/resumes/R1.json' })
       .resolves({ Body: bodyOf(JSON.stringify(resume)), ETag: '"e"' });
-    s3.on(GetObjectCommand, { Bucket: 'visual-resumes-storage', Key: 'users/U1/photos/R1.jpg' })
+    s3.on(GetObjectCommand, { Bucket: 'visual-resumes-storage', Key: 'users/U1/photos/R1.webp' })
       .rejects(Object.assign(new Error('no'), { name: 'NoSuchKey' }));
     s3.on(PutObjectCommand).resolves({});
     cf.on(CreateInvalidationCommand).resolves({});
 
     const out = await runPublish();
-    // Photo put is skipped; html + pdf + resume-back-write still succeed.
+    assert.equal(out.hasPhoto, false);
     const puts = s3.commandCalls(PutObjectCommand).map((c) => c.args[0].input);
     assert.ok(puts.find((p) => p.Key === `resumes/${out.slug}.html`));
-    assert.ok(!puts.find((p) => p.Key === `resumes/${out.slug}.jpg`));
   });
 
-  it('invalidates exactly the three slug paths', async () => {
+  it('invalidates exactly two slug paths (html + pdf — no separate image artifact)', async () => {
     s3.on(GetObjectCommand).resolves({ Body: bodyOf(JSON.stringify(baseResume())), ETag: '"e"' });
     s3.on(PutObjectCommand).resolves({});
     cf.on(CreateInvalidationCommand).resolves({});
@@ -514,7 +419,7 @@ describe('publish', () => {
     assert.equal(inv.DistributionId, 'DIST');
     assert.deepEqual(
       inv.InvalidationBatch.Paths.Items.sort(),
-      [`/resumes/${out.slug}.html`, `/resumes/${out.slug}.jpg`, `/resumes/${out.slug}.pdf`],
+      [`/resumes/${out.slug}.html`, `/resumes/${out.slug}.pdf`],
     );
   });
 
@@ -540,9 +445,8 @@ import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3
 import { CloudFrontClient, CreateInvalidationCommand } from '@aws-sdk/client-cloudfront';
 import { renderFromDisk } from '../../../shared/renderer.node.js';
 import { htmlToPdf as defaultHtmlToPdf } from './browser.js';
-import { reencodePublishedPhoto } from './photo.js';
 import { newSlug } from './slug.js';
-import { publishedKeys, publicUrls } from './public-urls.js';
+import { publishedKeys } from './published-keys.js';
 
 const s3 = new S3Client({});
 const cf = new CloudFrontClient({});
@@ -566,10 +470,14 @@ const loadResume = async ({ storageBucket, customId, resumeId, client }) => {
   }
 };
 
-const loadPhoto = async ({ storageBucket, photoKey, client }) => {
+// Read the already-processed WebP (produced by the image-resizer Lambda) and return
+// a data URI for inline embedding in the published HTML. Returns null if the photo
+// isn't there — usually means the image-resizer hasn't processed the latest upload yet.
+const loadPhotoDataUri = async ({ storageBucket, photoKey, client }) => {
   try {
     const obj = await client.send(new GetObjectCommand({ Bucket: storageBucket, Key: photoKey }));
-    return Buffer.from(await obj.Body.transformToByteArray());
+    const buf = Buffer.from(await obj.Body.transformToByteArray());
+    return `data:image/webp;base64,${buf.toString('base64')}`;
   } catch (err) {
     if (err.name === 'NoSuchKey' || err.$metadata?.httpStatusCode === 404) return null;
     throw err;
@@ -585,11 +493,10 @@ const loadPhoto = async ({ storageBucket, photoKey, client }) => {
  * @param {string} p.storageBucket
  * @param {string} p.publishedBucket
  * @param {string} p.cloudfrontDistId
- * @param {string} p.publicHost          e.g. "visual-resumes.isnan.eu"
  * @param {(html: string, format: string) => Promise<Buffer>} [p.htmlToPdf]  test seam
  * @param {S3Client} [p.s3Client]
  * @param {CloudFrontClient} [p.cfClient]
- * @returns {Promise<{ slug: string, htmlUrl: string, pdfUrl: string, jpgUrl?: string }>}
+ * @returns {Promise<{ slug: string, hasPhoto: boolean }>}
  */
 export const publish = async ({
   customId,
@@ -598,7 +505,6 @@ export const publish = async ({
   storageBucket,
   publishedBucket,
   cloudfrontDistId,
-  publicHost,
   htmlToPdf = defaultHtmlToPdf,
   s3Client = s3,
   cfClient = cf,
@@ -610,25 +516,26 @@ export const publish = async ({
 
   const slug = resume.published?.slug ?? newSlug();
   const keys = publishedKeys(slug);
-  const urls = publicUrls({ publicHost, slug });
 
-  // Render HTML via the shared renderer.
+  // Inline the processed photo (produced by image-resizer) as a data URI; null if missing.
+  const photoSrc = resume.photoKey
+    ? await loadPhotoDataUri({ storageBucket, photoKey: resume.photoKey, client: s3Client })
+    : null;
+
+  // Render HTML via the shared renderer. `_photoSrc` is the template's image source.
   const html = renderFromDisk({
     templatesDir,
-    resume: { ...resume, published: { slug, publishedAt: new Date().toISOString() } },
+    resume: {
+      ...resume,
+      published: { slug, publishedAt: new Date().toISOString() },
+      _photoSrc: photoSrc,
+    },
   });
 
-  // PDF via chromium.
+  // PDF via chromium. Chromium rasterizes the inline data URI into the PDF directly.
   const pdf = await htmlToPdf(html, resume.paperSize);
 
-  // Photo (optional).
-  let jpg = null;
-  if (resume.photoKey) {
-    const photoBuf = await loadPhoto({ storageBucket, photoKey: resume.photoKey, client: s3Client });
-    if (photoBuf) jpg = await reencodePublishedPhoto(photoBuf);
-  }
-
-  // Upload artifacts in parallel.
+  // Upload HTML + PDF in parallel. No separate image artifact — it's inside the HTML.
   await Promise.all([
     s3Client.send(new PutObjectCommand({
       Bucket: publishedBucket, Key: keys.html, Body: html,
@@ -640,11 +547,6 @@ export const publish = async ({
       ContentType: 'application/pdf',
       CacheControl: 'public, max-age=3600',
     })),
-    ...(jpg ? [s3Client.send(new PutObjectCommand({
-      Bucket: publishedBucket, Key: keys.jpg, Body: jpg,
-      ContentType: 'image/jpeg',
-      CacheControl: 'public, max-age=3600',
-    }))] : []),
   ]);
 
   // Write `published` back onto the resume (conditional so concurrent editor saves are respected).
@@ -665,8 +567,8 @@ export const publish = async ({
     }
   }
 
-  // Invalidate CF.
-  const paths = [`/${keys.html}`, `/${keys.pdf}`, `/${keys.jpg}`];
+  // Invalidate CF for the two published artifacts.
+  const paths = [`/${keys.html}`, `/${keys.pdf}`];
   await cfClient.send(new CreateInvalidationCommand({
     DistributionId: cloudfrontDistId,
     InvalidationBatch: {
@@ -675,12 +577,7 @@ export const publish = async ({
     },
   }));
 
-  return {
-    slug,
-    htmlUrl: urls.html,
-    pdfUrl:  urls.pdf,
-    ...(jpg ? { jpgUrl: urls.jpg } : {}),
-  };
+  return { slug, hasPhoto: Boolean(photoSrc) };
 };
 
 publish.NotFoundError = NotFoundError;
@@ -725,7 +622,6 @@ fs.writeFileSync(path.join(tmpTplRoot, 'monaco/meta.json'), JSON.stringify({ nam
 process.env.RESUMES_STORAGE_BUCKET   = 'visual-resumes-storage';
 process.env.RESUMES_PUBLISHED_BUCKET = 'visual-resumes-published';
 process.env.CLOUDFRONT_DIST_ID       = 'DIST';
-process.env.PUBLIC_HOST              = 'visual-resumes.isnan.eu';
 process.env.TEMPLATES_DIR            = tmpTplRoot;
 
 // Stub chromium so the test never boots a real browser.
@@ -763,8 +659,7 @@ describe('renderer handler', () => {
     assert.equal(res.statusCode, 200);
     const body = JSON.parse(res.body);
     assert.match(body.slug, /^[0-9a-z]{12}$/);
-    assert.equal(body.htmlUrl, `https://visual-resumes.isnan.eu/resumes/${body.slug}.html`);
-    assert.equal(body.pdfUrl,  `https://visual-resumes.isnan.eu/resumes/${body.slug}.pdf`);
+    assert.equal(body.hasPhoto, false);
   });
 
   it('401 when JWT claim is missing', async () => {
@@ -844,7 +739,6 @@ export const handler = async (event) => {
       storageBucket:    required('RESUMES_STORAGE_BUCKET'),
       publishedBucket:  required('RESUMES_PUBLISHED_BUCKET'),
       cloudfrontDistId: required('CLOUDFRONT_DIST_ID'),
-      publicHost:       required('PUBLIC_HOST'),
       htmlToPdf,
     });
 
@@ -924,8 +818,7 @@ git commit -m "feat(renderer): local-render dev CLI (HTML-only)"
   "private": true,
   "dependencies": {
     "@sparticuz/chromium": "133.0.0",
-    "puppeteer-core": "24.1.0",
-    "sharp": "0.33.5"
+    "puppeteer-core": "24.1.0"
   }
 }
 ```
@@ -950,7 +843,7 @@ CMD ["index.handler"]
 
 ```bash
 git add packages/functions/renderer/package.runtime.json packages/functions/renderer/Dockerfile
-git commit -m "feat(renderer): Dockerfile with chromium + puppeteer-core + sharp"
+git commit -m "feat(renderer): Dockerfile with chromium + puppeteer-core"
 ```
 
 ---
@@ -985,7 +878,6 @@ mkdir -p "$DIR/bin"
   --banner:js='import { createRequire as __createRequire } from "module"; const require = __createRequire(import.meta.url);' \
   --external:puppeteer-core \
   --external:@sparticuz/chromium \
-  --external:sharp \
   --external:@aws-sdk/* \
   --legal-comments=none
 
@@ -997,7 +889,10 @@ EOF
 mkdir -p "$DIR/bin/templates"
 cp -R "$REPO_ROOT/packages/templates/." "$DIR/bin/templates/"
 
-docker build --platform linux/amd64 -t "visual-resumes-renderer:$TAG" "$DIR"
+# --provenance=false + --sbom=false: AWS Lambda only accepts Docker v2 schema 2 manifests.
+# Modern buildx defaults to OCI + attestations, which Lambda rejects.
+docker buildx build --platform linux/arm64 --provenance=false --sbom=false --load \
+  -t "visual-resumes-renderer:$TAG" "$DIR"
 echo "built image visual-resumes-renderer:$TAG"
 ```
 
@@ -1067,7 +962,7 @@ curl -sS -o /dev/null -w "html: %{http_code}\n" "$HOST/resumes/$SLUG.html"
 curl -sS -o /dev/null -w "pdf:  %{http_code}\n" "$HOST/resumes/$SLUG.pdf"
 ```
 
-Expected: publish returns `{ slug, htmlUrl, pdfUrl }` with status 200; HTML and PDF both return 200 (CloudFront may need a few seconds to propagate after invalidation).
+Expected: publish returns `{ slug, hasPhoto }` with status 200; `https://visual-resumes.isnan.eu/resumes/$SLUG.html` and `.pdf` both return 200 (CloudFront may need a few seconds to propagate after invalidation).
 
 - [ ] **Step 4: Revoke (via api Lambda from Plan 3) — cleanup**
 
@@ -1094,7 +989,7 @@ Expected: 204 on both.
 
 ## Self-review checklist
 
-- [ ] `yarn test` green (slug, public-urls, photo, publish, index). No real chromium in tests.
+- [ ] `yarn test` green (slug, published-keys, photo, publish, index). No real chromium in tests.
 - [ ] `yarn lint` clean.
 - [ ] Chromium executable path works (`RENDERER_DISABLE_CHROMIUM` is test-only — never set in production).
 - [ ] `page.pdf({ format: paperSize })` honors both `A4` and `Letter`.
