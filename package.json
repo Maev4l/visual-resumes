@@ -1,0 +1,23 @@
+{
+  "name": "visual-resumes",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Visual CV authoring app (visual-resumes.isnan.eu)",
+  "scripts": {
+    "frontend:dev": "yarn --cwd packages/editor dev",
+    "frontend:build": "yarn --cwd packages/editor build",
+    "frontend:deploy": "yarn frontend:build && yarn --cwd packages/editor deploy",
+    "backend:build": "yarn --cwd packages/functions build",
+    "backend:deploy": "yarn backend:build && yarn --cwd packages/functions push-renderer && yarn --cwd packages/functions push-image-resizer && yarn infra:apply",
+    "infra:init": "terraform -chdir=packages/infrastructure init",
+    "infra:plan": "terraform -chdir=packages/infrastructure plan",
+    "infra:apply": "terraform -chdir=packages/infrastructure apply -auto-approve",
+    "infra:output": "terraform -chdir=packages/infrastructure output",
+    "lint": "yarn --cwd packages/editor lint && yarn --cwd packages/functions lint",
+    "test": "yarn --cwd packages/editor test && yarn --cwd packages/functions test",
+    "deploy": "yarn backend:deploy && yarn frontend:deploy"
+  },
+  "engines": {
+    "node": "22"
+  }
+}
