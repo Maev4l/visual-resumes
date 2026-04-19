@@ -1,0 +1,27 @@
+{
+  "name": "@visual-resumes/functions",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "eslint . && cd ../shared && eslint .",
+    "test": "node --test 'api/**/*.test.js' '../shared/**/*.test.js'",
+    "build": "api/scripts/build.sh",
+    "build:api": "api/scripts/build.sh"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cloudfront": "3.712.0",
+    "@aws-sdk/client-s3": "3.712.0",
+    "@aws-sdk/s3-request-presigner": "3.712.0",
+    "ajv": "8.17.1",
+    "ajv-formats": "3.0.1",
+    "ulid": "2.4.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.18.0",
+    "aws-sdk-client-mock": "4.1.0",
+    "esbuild": "0.24.2",
+    "eslint": "9.18.0",
+    "globals": "15.14.0"
+  }
+}

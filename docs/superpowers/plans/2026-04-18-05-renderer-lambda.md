@@ -408,6 +408,65 @@ describe('publish', () => {
     assert.ok(puts.find((p) => p.Key === `resumes/${out.slug}.html`));
   });
 
+  it('first publish with IfNoneMatch retries on slug collision and succeeds', async () => {
+    let htmlPutAttempts = 0;
+    s3.on(GetObjectCommand).resolves({ Body: bodyOf(JSON.stringify(baseResume())), ETag: '"e"' });
+    // First HTML put collides, second succeeds. PDF + back-write + anything else untouched.
+    s3.on(PutObjectCommand).callsFake(async (cmd) => {
+      const { Key, IfNoneMatch } = cmd.input ?? cmd;
+      if (Key.startsWith('resumes/') && Key.endsWith('.html') && IfNoneMatch === '*') {
+        htmlPutAttempts += 1;
+        if (htmlPutAttempts === 1) {
+          const err = new Error('slug taken');
+          err.name = 'PreconditionFailed';
+          throw err;
+        }
+      }
+      return { ETag: '"new"' };
+    });
+    cf.on(CreateInvalidationCommand).resolves({});
+
+    const out = await runPublish();
+    assert.equal(htmlPutAttempts, 2);
+    assert.match(out.slug, /^[0-9a-z]{12}$/);
+
+    // Verify ALL html puts on first publish used IfNoneMatch (the guard).
+    const htmlPuts = s3.commandCalls(PutObjectCommand)
+      .map((c) => c.args[0].input)
+      .filter((p) => p.Key?.endsWith('.html'));
+    assert.ok(htmlPuts.every((p) => p.IfNoneMatch === '*'), 'every first-publish html put must be conditional');
+  });
+
+  it('first publish throws SlugCollisionExhausted after FIRST_PUBLISH_MAX_RETRIES collisions', async () => {
+    s3.on(GetObjectCommand).resolves({ Body: bodyOf(JSON.stringify(baseResume())), ETag: '"e"' });
+    s3.on(PutObjectCommand).callsFake(async (cmd) => {
+      const { Key, IfNoneMatch } = cmd.input ?? cmd;
+      if (Key.startsWith('resumes/') && Key.endsWith('.html') && IfNoneMatch === '*') {
+        const err = new Error('slug taken');
+        err.name = 'PreconditionFailed';
+        throw err;
+      }
+      return { ETag: '"new"' };
+    });
+
+    await assert.rejects(() => runPublish(), (err) => err.name === 'SlugCollisionExhausted');
+  });
+
+  it('republish writes HTML WITHOUT IfNoneMatch (we already own the slug)', async () => {
+    const existing = baseResume({ published: { slug: 'existingsslug', publishedAt: '2026-04-01T00:00:00.000Z' } });
+    s3.on(GetObjectCommand).resolves({ Body: bodyOf(JSON.stringify(existing)), ETag: '"e"' });
+    s3.on(PutObjectCommand).resolves({ ETag: '"new"' });
+    cf.on(CreateInvalidationCommand).resolves({});
+
+    await runPublish();
+
+    const htmlPut = s3.commandCalls(PutObjectCommand)
+      .map((c) => c.args[0].input)
+      .find((p) => p.Key === 'resumes/existingsslug.html');
+    assert.ok(htmlPut, 'html put');
+    assert.equal(htmlPut.IfNoneMatch, undefined, 'republish must NOT set IfNoneMatch');
+  });
+
   it('invalidates exactly two slug paths (html + pdf — no separate image artifact)', async () => {
     s3.on(GetObjectCommand).resolves({ Body: bodyOf(JSON.stringify(baseResume())), ETag: '"e"' });
     s3.on(PutObjectCommand).resolves({});
@@ -451,8 +510,20 @@ import { publishedKeys } from './published-keys.js';
 const s3 = new S3Client({});
 const cf = new CloudFrontClient({});
 
+// Probability of a real collision in 36^12 space (4.7e18) is essentially zero at our scale,
+// but we still guard first-publish writes with `IfNoneMatch: '*'` to prevent cross-user
+// bleed if it ever happens. Five is a generous ceiling — a single collision is already
+// astronomically unlikely, and five in a row approaches lottery-winning odds.
+const FIRST_PUBLISH_MAX_RETRIES = 5;
+
 class NotFoundError extends Error { constructor(m) { super(m); this.name = 'NotFound'; } }
 class ForbiddenError extends Error { constructor(m) { super(m); this.name = 'Forbidden'; } }
+class SlugCollisionExhaustedError extends Error {
+  constructor() {
+    super(`slug collision unresolved after ${FIRST_PUBLISH_MAX_RETRIES} attempts`);
+    this.name = 'SlugCollisionExhausted';
+  }
+}
 
 const loadResume = async ({ storageBucket, customId, resumeId, client }) => {
   try {
@@ -514,40 +585,64 @@ export const publish = async ({
     throw new ForbiddenError('not your resume');
   }
 
-  const slug = resume.published?.slug ?? newSlug();
-  const keys = publishedKeys(slug);
+  const isFirstPublish = !resume.published?.slug;
+  let slug = resume.published?.slug ?? newSlug();
 
   // Inline the processed photo (produced by image-resizer) as a data URI; null if missing.
   const photoSrc = resume.photoKey
     ? await loadPhotoDataUri({ storageBucket, photoKey: resume.photoKey, client: s3Client })
     : null;
 
-  // Render HTML via the shared renderer. `_photoSrc` is the template's image source.
+  // Render HTML + PDF ONCE. Templates don't embed the slug (only `_photoSrc` and the
+  // resume data), so the HTML bytes are identical across any collision retries — we just
+  // write them at a different S3 key.
   const html = renderFromDisk({
     templatesDir,
-    resume: {
-      ...resume,
-      published: { slug, publishedAt: new Date().toISOString() },
-      _photoSrc: photoSrc,
-    },
+    resume: { ...resume, _photoSrc: photoSrc },
   });
-
-  // PDF via chromium. Chromium rasterizes the inline data URI into the PDF directly.
   const pdf = await htmlToPdf(html, resume.paperSize);
 
-  // Upload HTML + PDF in parallel. No separate image artifact — it's inside the HTML.
-  await Promise.all([
-    s3Client.send(new PutObjectCommand({
+  // --- Claim the slug ---
+  // First publish: conditional PutObject with `IfNoneMatch: '*'` claims the slug atomically.
+  //   On 412 (PreconditionFailed == slug already in use), regenerate + retry up to
+  //   FIRST_PUBLISH_MAX_RETRIES. This prevents a cross-user slug collision from overwriting
+  //   someone else's published HTML.
+  // Republish: unconditional overwrite (we already own this slug — it's stored on the resume).
+  if (isFirstPublish) {
+    for (let attempt = 0; ; attempt += 1) {
+      const keys = publishedKeys(slug);
+      try {
+        await s3Client.send(new PutObjectCommand({
+          Bucket: publishedBucket, Key: keys.html, Body: html,
+          ContentType: 'text/html; charset=utf-8',
+          CacheControl: 'public, max-age=3600',
+          IfNoneMatch: '*',
+        }));
+        break;
+      } catch (err) {
+        if (err.name !== 'PreconditionFailed') throw err;
+        if (attempt + 1 >= FIRST_PUBLISH_MAX_RETRIES) throw new SlugCollisionExhaustedError();
+        slug = newSlug();
+      }
+    }
+  } else {
+    const keys = publishedKeys(slug);
+    await s3Client.send(new PutObjectCommand({
       Bucket: publishedBucket, Key: keys.html, Body: html,
       ContentType: 'text/html; charset=utf-8',
       CacheControl: 'public, max-age=3600',
-    })),
-    s3Client.send(new PutObjectCommand({
-      Bucket: publishedBucket, Key: keys.pdf, Body: pdf,
-      ContentType: 'application/pdf',
-      CacheControl: 'public, max-age=3600',
-    })),
-  ]);
+    }));
+  }
+
+  // The slug is now locked in (either first-publish claim succeeded or we already owned it).
+  const keys = publishedKeys(slug);
+
+  // PDF — unconditional. We own the slug at this point.
+  await s3Client.send(new PutObjectCommand({
+    Bucket: publishedBucket, Key: keys.pdf, Body: pdf,
+    ContentType: 'application/pdf',
+    CacheControl: 'public, max-age=3600',
+  }));
 
   // Write `published` back onto the resume (conditional so concurrent editor saves are respected).
   const updated = { ...resume, published: { slug, publishedAt: new Date().toISOString() } };
@@ -582,6 +677,7 @@ export const publish = async ({
 
 publish.NotFoundError = NotFoundError;
 publish.ForbiddenError = ForbiddenError;
+publish.SlugCollisionExhaustedError = SlugCollisionExhaustedError;
 ```
 
 - [ ] **Step 4: Run — pass; commit**
@@ -979,6 +1075,7 @@ Expected: 204 on both.
 
 - [ ] Templates are loaded from `/var/task/templates` inside the image (confirm `TEMPLATES_DIR` is set by the Dockerfile).
 - [ ] First publish generates a new 12-char slug; republish reuses existing slug.
+- [ ] First publish uses `IfNoneMatch: '*'` on the HTML PutObject and retries on 412 up to `FIRST_PUBLISH_MAX_RETRIES` (5) — defense against slug collisions that would otherwise cross user boundaries. Republish writes without the guard.
 - [ ] Missing photo is tolerated.
 - [ ] Conditional write-back uses the `etag` from the initial GET — a concurrent editor save causes a warning log, not a failure (the artifacts are already public by then).
 - [ ] CF invalidation batches exactly the three slug paths.

@@ -49,7 +49,9 @@ for (const templateId of ['monaco', 'modern', 'avant']) {
     });
 
     it('inlines the CSS', () => {
-      assert.match(html, /<style>[^<]*<\/style>/);
+      // Match across lines + tolerate `<` inside CSS comments (e.g. a `/* … <div …> … */`).
+      // `[\s\S]+?` is the standard dot-all workaround for regex without the `s` flag.
+      assert.match(html, /<style>[\s\S]+?<\/style>/);
       assert.doesNotMatch(html, /CSS_PLACEHOLDER/);
     });
 

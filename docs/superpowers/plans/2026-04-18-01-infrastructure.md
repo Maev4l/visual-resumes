@@ -95,18 +95,28 @@ Expected: `.git/` appears.
 
 - [ ] **Step 2: Create `.gitignore`**
 
+This is the ONLY `.gitignore` in the repo — no per-package copies. `bin/`, `dist/`, `node_modules/` all match at any depth because they have no leading slash.
+
 ```gitignore
+# Claude
+.claude/
+.superpowers/
+
 # dependencies
 node_modules/
 .yarn/
 .pnp.*
 
 # builds
+bin/
 dist/
 build/
 .next/
 .vite/
 .cache/
+
+# editor runtime config (written by deploy script or copied locally; never committed)
+packages/editor/public/config.json
 
 # terraform
 **/.terraform/
@@ -239,7 +249,6 @@ git commit -m "chore: repo scaffolding"
 > Each function folder already has its final layout (`src/`, `bin/`, `dist/`, `scripts/`). Plans 3/4/5 replace the stub source + build scripts with real code. Here, stubs populate `bin/` via a trivial `cp` rather than a real bundler.
 
 **Files:**
-- Create: `packages/functions/.gitignore`
 - Create: `packages/functions/api/src/index.js`
 - Create: `packages/functions/api/scripts/build.sh`
 - Create: `packages/functions/renderer/src/index.js`
@@ -252,15 +261,9 @@ git commit -m "chore: repo scaffolding"
 - Create: `packages/functions/image-resizer/scripts/push.sh`
 - Create: `packages/functions/scripts/bootstrap.sh`
 
-- [ ] **Step 1: `packages/functions/.gitignore`**
+> The root `.gitignore` (Task 1) already covers `bin/`, `dist/`, and `node_modules/` globally — no per-package gitignore needed.
 
-```gitignore
-*/bin/
-*/dist/
-node_modules/
-```
-
-- [ ] **Step 2: `packages/functions/api/src/index.js`**
+- [ ] **Step 1: `packages/functions/api/src/index.js`**
 
 ```javascript
 export const handler = async (event) => ({

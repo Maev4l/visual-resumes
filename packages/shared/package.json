@@ -1,0 +1,12 @@
+{
+  "name": "@visual-resumes/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Isomorphic renderer + section catalog + schema. Consumers (editor, functions) import via relative path; this package.json exists only to declare runtime dependencies so bare specifiers resolve via Node's walk-up from files in this directory.",
+  "dependencies": {
+    "dayjs": "1.11.13",
+    "handlebars": "4.7.8",
+    "markdown-it": "14.1.0"
+  }
+}

@@ -9,11 +9,15 @@ node_modules/
 .pnp.*
 
 # builds
+bin/
 dist/
 build/
 .next/
 .vite/
 .cache/
+
+# editor runtime config (written by deploy script or copied locally; never committed)
+packages/editor/public/config.json
 
 # terraform
 **/.terraform/
