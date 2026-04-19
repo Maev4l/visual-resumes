@@ -32,12 +32,21 @@ module "api" {
 
 # ----- renderer Lambda (container) -----
 
+# Resolve the :latest (or var.image_tag) tag to a digest-based URI. Lambda caches the
+# digest at update time — referencing the tag alone wouldn't diff on a new push, so new
+# images wouldn't roll out. The data source refetches every plan; when the digest changes
+# Terraform detects the diff and updates the function.
+data "aws_ecr_image" "renderer" {
+  repository_name = aws_ecr_repository.renderer.name
+  image_tag       = var.image_tag
+}
+
 module "renderer" {
   source        = "github.com/Maev4l/terraform-modules//modules/lambda-function?ref=v1.7.0"
   function_name = "visual-resumes-renderer"
 
   image = {
-    uri = "${aws_ecr_repository.renderer.repository_url}:${var.image_tag}"
+    uri = "${aws_ecr_repository.renderer.repository_url}@${data.aws_ecr_image.renderer.image_digest}"
   }
 
   architecture          = "arm64"
@@ -60,12 +69,17 @@ module "renderer" {
 # prefix don't overlap); no source cleanup (the bucket lifecycle rule reaps photo-uploads
 # after 1 day).
 
+data "aws_ecr_image" "image_resizer" {
+  repository_name = aws_ecr_repository.image_resizer.name
+  image_tag       = var.image_tag
+}
+
 module "image_resizer" {
   source        = "github.com/Maev4l/terraform-modules//modules/lambda-function?ref=v1.7.0"
   function_name = "visual-resumes-image-resizer"
 
   image = {
-    uri = "${aws_ecr_repository.image_resizer.repository_url}:${var.image_tag}"
+    uri = "${aws_ecr_repository.image_resizer.repository_url}@${data.aws_ecr_image.image_resizer.image_digest}"
   }
 
   architecture          = "arm64"

@@ -1,0 +1,9 @@
+{
+  "name": "image-resizer-runtime",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "sharp": "0.33.5"
+  }
+}

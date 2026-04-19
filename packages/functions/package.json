@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "lint": "eslint . && cd ../shared && eslint .",
-    "test": "node --test 'api/**/*.test.js' '../shared/**/*.test.js'",
+    "test": "node --test 'api/**/*.test.js' 'image-resizer/**/*.test.js' '../shared/**/*.test.js'",
     "build": "api/scripts/build.sh",
     "build:api": "api/scripts/build.sh"
   },
@@ -15,6 +15,7 @@
     "@aws-sdk/s3-request-presigner": "3.712.0",
     "ajv": "8.17.1",
     "ajv-formats": "3.0.1",
+    "sharp": "0.33.5",
     "ulid": "2.4.0"
   },
   "devDependencies": {

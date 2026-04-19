@@ -4,9 +4,9 @@
 
 **Goal:** Replace the `packages/functions/image-resizer` hello-world stub with a real handler that processes every raw photo uploaded to `photo-uploads/<customId>/<resumeId>` — resizing to 600px longest side (aspect-preserving, no upscale), stripping EXIF, and encoding as WebP q80. The output lands at `users/<customId>/photos/<resumeId>.webp` and is used by both the editor preview and the renderer (embedded as a base64 data URI on publish). The raw upload is NOT deleted by this Lambda — the bucket lifecycle rule (`photo-uploads/` → 1-day expiration) handles that.
 
-**Architecture:** Container Lambda. esbuild bundles `src/` → `bin/` with `sharp` and `@aws-sdk/*` externalized; the Dockerfile installs `sharp` fresh against Linux/x86_64 at build time (guarantees the correct native binary regardless of the developer's OS). Handler is triggered by S3 `ObjectCreated:*` events filtered to `.jpg|.jpeg|.png|.webp` under `users/` (configured in Plan 1). A guard skips any key containing `-thumb.` to prevent infinite recursion when we write the thumbnail back into the same bucket.
+**Architecture:** Container Lambda. esbuild bundles `src/` → `bin/` with `sharp` and `@aws-sdk/*` externalized; the Dockerfile installs `sharp` fresh against Linux/arm64 at build time (guarantees the correct native binary regardless of the developer's OS). Handler is triggered by S3 `ObjectCreated:*` events filtered to `.jpg|.jpeg|.png|.webp` under `users/` (configured in Plan 1). A guard skips any key containing `-thumb.` to prevent infinite recursion when we write the thumbnail back into the same bucket.
 
-**Tech Stack:** Node.js 22 (ESM), `sharp`, `@aws-sdk/client-s3`, esbuild, Docker (linux/amd64), `node --test`.
+**Tech Stack:** Node.js 22 (ESM), `sharp`, `@aws-sdk/client-s3`, esbuild, Docker (linux/arm64), `node --test`.
 
 **Repo this plan runs in:** `visual-resumes`.
 
@@ -236,7 +236,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mockClient } from 'aws-sdk-client-mock';
-import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import sharp from 'sharp';
 import { handler } from './index.js';
 
@@ -291,11 +291,10 @@ describe('image-resizer handler', () => {
     await handler(evt('photo-uploads/U1/R1'));
 
     // Only the one Put (output). No DeleteObject.
+    // Note: aws-sdk-client-mock requires the command CLASS when calling commandCalls()
+    // — calling it with no args throws. Use the typed selector.
     assert.equal(s3.commandCalls(PutObjectCommand).length, 1);
-    const deleteCommand = s3.commandCalls().find(
-      (c) => c.args[0].constructor.name === 'DeleteObjectCommand',
-    );
-    assert.equal(deleteCommand, undefined);
+    assert.equal(s3.commandCalls(DeleteObjectCommand).length, 0);
   });
 
   it('swallows malformed-image errors instead of failing (no retry storm on bad uploads)', async () => {
@@ -416,7 +415,7 @@ git commit -m "feat(image-resizer): handler — photo-uploads/* → users/*/phot
 - Create: `packages/functions/image-resizer/package.runtime.json`
 - Modify (replace stub): `packages/functions/image-resizer/Dockerfile`
 
-- [ ] **Step 1: `package.runtime.json`** — installed fresh inside the container so sharp gets Linux/x86_64 binaries
+- [ ] **Step 1: `package.runtime.json`** — installed fresh inside the container so sharp gets Linux/arm64 binaries
 
 ```json
 {
@@ -433,7 +432,7 @@ git commit -m "feat(image-resizer): handler — photo-uploads/* → users/*/phot
 - [ ] **Step 2: `Dockerfile`**
 
 ```dockerfile
-# Multi-stage build — stage 1 installs sharp against Linux/x86_64 so the native binary matches the runtime.
+# Multi-stage build — stage 1 installs sharp against Linux/arm64 so the native binary matches the runtime.
 FROM public.ecr.aws/lambda/nodejs:22 AS deps
 WORKDIR /build
 COPY package.runtime.json package.json
@@ -449,7 +448,7 @@ CMD ["index.handler"]
 
 ```bash
 git add packages/functions/image-resizer/package.runtime.json packages/functions/image-resizer/Dockerfile
-git commit -m "feat(image-resizer): Dockerfile with fresh sharp install for linux/amd64"
+git commit -m "feat(image-resizer): Dockerfile with fresh sharp install for linux/arm64"
 ```
 
 ---
@@ -597,7 +596,7 @@ aws s3 rm "s3://$STORAGE/users/TESTUSER/photos/SMOKE.webp"
 - [ ] Handles multi-record events.
 
 - [ ] **Step 2: Known trade-offs**
-- Sharp native binary is installed fresh in the container for linux/amd64 — slightly slower builds, but no cross-platform surprises.
+- Sharp native binary is installed fresh in the container for linux/arm64 — slightly slower builds, but no cross-platform surprises.
 - No DLQ; per-record errors are logged and continue. Accept for 5-user scale.
 
 ---
