@@ -57,7 +57,7 @@ output "editor_runtime_config" {
     cognitoUserPoolId     = local.cognito_user_pool_id
     cognitoClientId       = local.cognito_client_id
     cognitoHostedUiOrigin = var.cognito_hosted_ui_origin
-    cognitoRedirectUri    = "https://${var.domain_name}/auth/callback"
+    cognitoRedirectUri    = "https://${var.domain_name}/"
     cognitoLogoutUri      = "https://${var.domain_name}/"
     cognitoScopes         = ["openid", "email", "profile"]
   })

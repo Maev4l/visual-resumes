@@ -67,8 +67,11 @@ resource "aws_cognito_user_pool_client" "visual_resumes" {
   user_pool_id = aws_cognito_user_pool.idp.id
 
   supported_identity_providers         = ["COGNITO", "Google"]
-  callback_urls                        = ["https://visual-resumes.isnan.eu/auth/callback", "http://localhost:3000/auth/callback"]
-  logout_urls                          = ["https://visual-resumes.isnan.eu/", "http://localhost:3000/"]
+  # Redirect to `/` (not `/auth/callback`): S3+OAC returns 403 on missing keys rather than 404,
+  # so CloudFront's `custom_error_response` SPA fallback doesn't catch deep-route redirects.
+  # Landing on `/` always serves index.html; Amplify reads the `?code` query param on mount.
+  callback_urls                        = ["https://visual-resumes.isnan.eu/", "http://localhost:5178/"]
+  logout_urls                          = ["https://visual-resumes.isnan.eu/", "http://localhost:5178/"]
   allowed_oauth_flows                  = ["code"]
   allowed_oauth_scopes                 = ["openid", "email", "profile"]
   allowed_oauth_flows_user_pool_client = true
@@ -220,7 +223,7 @@ Do not commit. The user reviews and commits.
 ## Self-review checklist
 
 - [ ] The new app client uses `depends_on = [aws_cognito_identity_provider.google]` so Google federation works on first creation.
-- [ ] Callback URLs include both the production (`https://visual-resumes.isnan.eu/auth/callback`) and local-dev (`http://localhost:3000/auth/callback`) endpoints.
+- [ ] Callback URLs include both the production (`https://visual-resumes.isnan.eu/`) and local-dev (`http://localhost:5178/`) endpoints. Redirect is the site root, not `/auth/callback`, so the SPA fallback works without CloudFront rewriting.
 - [ ] Scopes, flows, `supported_identity_providers`, `prevent_user_existence_errors`, and any per-project validity attributes match the style of the existing client resource(s) you recorded in Task 1.
 - [ ] `aws_ssm_parameter.app_clients` still contains every pre-existing key — only the `visual-resumes` key was added.
 - [ ] `platform/idp/CLAUDE.md` Apps table reflects the new row.
