@@ -871,6 +871,12 @@ data "aws_iam_policy_document" "renderer" {
     actions   = ["s3:GetObject"]
     resources = ["${local.bucket_storage_arn}/users/*"]
   }
+  # Back-write `published: { slug, publishedAt }` onto the resume JSON after a successful publish.
+  statement {
+    sid       = "ResumeJsonBackWrite"
+    actions   = ["s3:PutObject"]
+    resources = ["${local.bucket_storage_arn}/users/*/resumes/*.json"]
+  }
   statement {
     sid       = "PublishedBucketWrite"
     actions   = ["s3:PutObject", "s3:DeleteObject"]

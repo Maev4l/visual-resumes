@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the `packages/functions/renderer` hello-world stub with a real handler wired to `POST /api/resumes/{id}/publish`. The handler reads the resume JSON, renders HTML via the shared renderer, generates a PDF via headless Chromium, re-encodes the photo (if present) into a public JPEG, uploads all three artifacts to the published bucket, writes `published: { slug, publishedAt }` back onto the resume JSON, and issues a CloudFront invalidation. Returns `{ slug, htmlUrl, pdfUrl }` to the editor.
+**Goal:** Replace the `packages/functions/renderer` hello-world stub with a real handler wired to `POST /api/resumes/{id}/publish`. The handler reads the resume JSON, reads the already-resized WebP photo (if any) and inlines it into the HTML as a base64 data URI, renders HTML via the shared renderer, generates a PDF via headless Chromium, uploads the two artifacts (html + pdf) to the published bucket, writes `published: { slug, publishedAt }` back onto the resume JSON, and issues a CloudFront invalidation. Returns `{ slug, hasPhoto }` to the editor.
 
-**Architecture:** Container Lambda. The shared `packages/shared/renderer.node.js` loads templates from disk; templates are copied into the image at build time (under `/var/task/templates`). PDF generation uses `puppeteer-core` + `@sparticuz/chromium`. The photo is re-encoded via `sharp` (longest side 600 px, JPEG q85). Slug is 12-char nanoid with alphabet `0123456789a-z`, generated on first publish and preserved on republish. Writes back to the resume JSON use conditional S3 writes so a concurrent save from the editor doesn't get clobbered.
+**Architecture:** Container Lambda on arm64 (Graviton). The shared `packages/shared/renderer.node.js` loads templates from disk; templates are copied into the image at build time (under `/var/task/templates`). PDF generation uses `puppeteer-core` + `@sparticuz/chromium-min` (the `-min` variant ships no binary — the npm `@sparticuz/chromium` package is x86_64-only, so for arm64 we use `-min` and curl the arm64 pack from GitHub releases during `docker build`, extracting it to `/opt/chromium/`). No photo re-encoding at publish time — the image-resizer Lambda already produced a 600px WebP at `users/<customId>/photos/<resumeId>.webp`, the renderer just base64-encodes it into the HTML. Slug is 12-char nanoid with alphabet `0123456789a-z`; first publish uses `IfNoneMatch: '*'` with up to 5 retries to guard against collisions, republish overwrites unconditionally. Writes back to the resume JSON use conditional S3 writes so a concurrent save from the editor doesn't get clobbered.
 
-**Tech Stack:** Node.js 22 (ESM), `puppeteer-core`, `@sparticuz/chromium`, `nanoid`, `@aws-sdk/client-s3`, `@aws-sdk/client-cloudfront`, esbuild, Docker (linux/amd64), `node --test` with handcrafted browser stubs. **No sharp** — the image-resizer Lambda already produced the WebP the renderer needs.
+**Tech Stack:** Node.js 22 (ESM), `puppeteer-core`, `@sparticuz/chromium-min` (arm64 pack downloaded at Dockerfile build time), `nanoid`, `@aws-sdk/client-s3`, `@aws-sdk/client-cloudfront`, esbuild, Docker (**linux/arm64** with `--provenance=false --sbom=false`), `node --test` with handcrafted browser stubs. **No sharp** — the image-resizer Lambda already produced the WebP the renderer needs.
 
 **Repo this plan runs in:** `visual-resumes`.
 
@@ -55,12 +55,12 @@ Inside `packages/functions/`:
 
 ```bash
 yarn add --exact \
-  puppeteer-core@24.1.0 \
-  @sparticuz/chromium@133.0.0
+  puppeteer-core@24.10.0 \
+  @sparticuz/chromium-min@137.0.1
 # nanoid was added in Plan 2.
 ```
 
-Pin rationale: `@sparticuz/chromium@133` bundles a Chromium build that works with Node 22 and with the pinned `puppeteer-core`. If the user publishes a different tag, match it.
+Pin rationale: `@sparticuz/chromium-min@137.0.1` (the `-min` variant ships no binary — the regular `@sparticuz/chromium` npm package is x86_64-only; for arm64 we download the pack from GitHub releases during Docker build). `puppeteer-core@24.10.0` is the release that rolled Chromium to 137. Bump in lockstep with any future chromium-min version.
 
 - [ ] **Step 2: Commit**
 
@@ -194,10 +194,14 @@ This task previously had the renderer re-encode the original photo to JPEG at pu
 
 ```javascript
 // packages/functions/renderer/src/browser.js
-import chromium from '@sparticuz/chromium';
+import chromium from '@sparticuz/chromium-min';
 import puppeteer from 'puppeteer-core';
 
 let cached = null;
+
+// Dockerfile extracts the arm64 Chromium pack to this dir at build time — chromium-min
+// ships no binary so we must tell it where to find the pre-extracted Brotli files.
+const CHROMIUM_PACK_DIR = process.env.CHROMIUM_PACK_DIR ?? '/opt/chromium';
 
 /**
  * Launches a Chromium browser in Lambda. Returns `{ browser, close }`.
@@ -210,7 +214,7 @@ export const launchBrowser = async () => {
   const browser = await puppeteer.launch({
     args: [...chromium.args, '--disable-gpu', '--disable-dev-shm-usage'],
     defaultViewport: chromium.defaultViewport,
-    executablePath: await chromium.executablePath(),
+    executablePath: await chromium.executablePath(CHROMIUM_PACK_DIR),
     headless: true,
   });
   cached = {
@@ -913,8 +917,8 @@ git commit -m "feat(renderer): local-render dev CLI (HTML-only)"
   "type": "module",
   "private": true,
   "dependencies": {
-    "@sparticuz/chromium": "133.0.0",
-    "puppeteer-core": "24.1.0"
+    "@sparticuz/chromium-min": "137.0.1",
+    "puppeteer-core": "24.10.0"
   }
 }
 ```
@@ -922,16 +926,34 @@ git commit -m "feat(renderer): local-render dev CLI (HTML-only)"
 - [ ] **Step 2: `Dockerfile`**
 
 ```dockerfile
+# Multi-stage: stage 1 installs puppeteer-core + @sparticuz/chromium-min against Linux/arm64 so
+# the native binaries match the Lambda runtime (Graviton). It ALSO downloads the arm64 Chromium
+# pack (chromium-min ships no binary; arm64 binaries live as release assets on GitHub).
+# Stage 2 copies everything into the AWS Lambda Node 22 base image.
 FROM public.ecr.aws/lambda/nodejs:22 AS deps
 WORKDIR /build
+
+# Keep in sync with package.runtime.json @sparticuz/chromium-min version.
+ARG CHROMIUM_VERSION=137.0.1
+
 COPY package.runtime.json package.json
 RUN npm install --omit=dev --no-audit --no-fund --no-package-lock
 
+# Extract the arm64 Chromium pack into /opt/chromium. browser.js calls
+# chromium.executablePath('/opt/chromium') to launch without re-downloading at runtime.
+RUN dnf install -y tar && \
+    curl -fsSL -o /tmp/chromium-pack.tar \
+      "https://github.com/Sparticuz/chromium/releases/download/v${CHROMIUM_VERSION}/chromium-v${CHROMIUM_VERSION}-pack.arm64.tar" && \
+    mkdir -p /opt/chromium && \
+    tar -xf /tmp/chromium-pack.tar -C /opt/chromium && \
+    rm /tmp/chromium-pack.tar
+
 FROM public.ecr.aws/lambda/nodejs:22
 COPY --from=deps /build/node_modules ${LAMBDA_TASK_ROOT}/node_modules
+COPY --from=deps /opt/chromium /opt/chromium
 COPY bin/ ${LAMBDA_TASK_ROOT}/
-# bin/ includes: index.js, package.json, templates/<...>
 ENV TEMPLATES_DIR=${LAMBDA_TASK_ROOT}/templates
+ENV CHROMIUM_PACK_DIR=/opt/chromium
 CMD ["index.handler"]
 ```
 
@@ -985,9 +1007,11 @@ EOF
 mkdir -p "$DIR/bin/templates"
 cp -R "$REPO_ROOT/packages/templates/." "$DIR/bin/templates/"
 
+# linux/amd64 (NOT arm64): @sparticuz/chromium ships an x86_64-only Chromium binary. Must match
+# the Lambda `architecture = "x86_64"` setting in Terraform.
 # --provenance=false + --sbom=false: AWS Lambda only accepts Docker v2 schema 2 manifests.
 # Modern buildx defaults to OCI + attestations, which Lambda rejects.
-docker buildx build --platform linux/arm64 --provenance=false --sbom=false --load \
+docker buildx build --platform linux/amd64 --provenance=false --sbom=false --load \
   -t "visual-resumes-renderer:$TAG" "$DIR"
 echo "built image visual-resumes-renderer:$TAG"
 ```

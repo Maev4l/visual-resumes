@@ -5,16 +5,23 @@
   "type": "module",
   "scripts": {
     "lint": "eslint . && cd ../shared && eslint .",
-    "test": "node --test 'api/**/*.test.js' 'image-resizer/**/*.test.js' '../shared/**/*.test.js'",
-    "build": "api/scripts/build.sh",
-    "build:api": "api/scripts/build.sh"
+    "test": "node --test 'api/**/*.test.js' 'image-resizer/**/*.test.js' 'renderer/**/*.test.js' '../shared/**/*.test.js'",
+    "build": "yarn build:api && yarn build:image-resizer && yarn build:renderer",
+    "build:api": "api/scripts/build.sh",
+    "build:image-resizer": "image-resizer/scripts/build.sh",
+    "build:renderer": "renderer/scripts/build.sh",
+    "push-image-resizer": "image-resizer/scripts/push.sh $(aws sts get-caller-identity --query Account --output text) $(aws configure get region)",
+    "push-renderer": "renderer/scripts/push.sh $(aws sts get-caller-identity --query Account --output text) $(aws configure get region)"
   },
   "dependencies": {
     "@aws-sdk/client-cloudfront": "3.712.0",
     "@aws-sdk/client-s3": "3.712.0",
     "@aws-sdk/s3-request-presigner": "3.712.0",
+    "@sparticuz/chromium-min": "137.0.1",
     "ajv": "8.17.1",
     "ajv-formats": "3.0.1",
+    "nanoid": "5.0.9",
+    "puppeteer-core": "24.10.0",
     "sharp": "0.33.5",
     "ulid": "2.4.0"
   },
