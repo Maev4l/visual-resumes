@@ -1,0 +1,7 @@
+{
+  "name": "Monaco",
+  "description": "Single-column CV in Open Sans with green section headers and pipe-separated contact line.",
+  "supportsPhoto": true,
+  "supportedPaperSizes": ["A4", "Letter"],
+  "previewPng": "preview.png"
+}

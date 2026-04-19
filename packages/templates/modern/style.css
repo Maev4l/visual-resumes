@@ -1,0 +1,144 @@
+/* Modern - two-column with coral-red masthead. Ported from legacy react-jss template.
+   WHY layout: 65/35 split with the main content on the LEFT and the light-blue sidebar on
+   the RIGHT, mirroring the original MainContainer (LeftPanel + SideBar). The TriangleDown
+   SVG decoration from the old JSS is reproduced with pure CSS borders. */
+
+:root {
+  --body-font: "Source Sans Pro", "Segoe UI", system-ui, sans-serif;
+  --red: #EA7777;
+  --light-blue: #F2F7FB;
+  --gray: #E5EAEf;
+  --dark-gray: #777777;
+  --muted: #555555;
+  --white: #FFFFFF;
+  --text: #1a1a1a;
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; padding: 0; color: var(--text); font-family: var(--body-font); font-weight: 300; font-size: 11pt; line-height: 1.45; }
+
+/* Grid sheet: main 65% | sidebar 35%. Fills the viewport in the browser — the @page rule
+   at the bottom constrains print output to A4 regardless. This matches the legacy layout
+   (no max-width + margin: 0), avoiding wasted whitespace when the user views the HTML. */
+.sheet { display: grid; grid-template-columns: 65% 35%; gap: 0; width: 100%; min-height: 100vh; }
+
+/* --- LEFT column: masthead + content --- */
+.main-column { display: flex; flex-direction: column; }
+
+.masthead .headline {
+  font-weight: 300;
+  font-size: 350%;
+  color: var(--red);
+  padding: 20px;
+  min-height: 1.2em;
+  line-height: 1.1;
+}
+/* `position: relative` establishes the containing block for the ::before notch below. */
+.masthead .name-bar {
+  position: relative;
+  font-weight: 300;
+  font-size: 175%;
+  background-color: var(--light-blue);
+  padding: 20px;
+}
+/* TriangleDown port: a white downward-pointing notch at the TOP of the blue name-bar,
+   offset 70px from the left — exactly where the legacy site anchored its absolute-positioned
+   TriangleDown div. ::before on the bar (not absolute-positioned in the masthead) so the
+   notch is always at the red/blue seam regardless of header height. The <div class="triangle">
+   emitted by the template is hidden below — redundant after this change but kept so older
+   rendered HTML (if any) doesn't break. */
+.masthead .name-bar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 70px;
+  width: 0;
+  height: 0;
+  border-left: 15px solid transparent;
+  border-right: 15px solid transparent;
+  border-top: 12px solid var(--white);
+  filter: drop-shadow(rgba(0, 0, 0, 0.1) 0 3px 2px);
+  z-index: 1;
+}
+.masthead .triangle { display: none; }
+
+.main-column .section { margin: 1.5em 20px; break-inside: avoid; }
+.main-column .section h2 {
+  font-size: 150%;
+  font-weight: 700;
+  text-transform: uppercase;
+  margin: 0 0 0.75em;
+  break-after: avoid;
+}
+
+/* Experience / education: left dates column + right details. */
+.entry { display: flex; margin: 0 0 0.75em; break-inside: avoid; }
+.entry .dates { font-weight: 400; min-width: 125px; max-width: 125px; color: var(--muted); padding-right: 5px; }
+.entry .details { flex: 1; }
+.entry .role { font-weight: 700; }
+.entry .company { font-weight: 400; margin-bottom: 4px; }
+.entry .location { color: var(--muted); font-style: italic; }
+.entry .degree { font-weight: 700; }
+.entry .institution { color: var(--dark-gray); }
+.entry .notes { margin: 0.25em 0 0; color: var(--dark-gray); }
+
+.bullets { margin: 0.3em 0 0; padding-left: 1.25em; }
+.bullets li { margin: 0.15em 0; break-inside: avoid; }
+
+.project-item { display: block; }
+.project-item .project-name { font-weight: 700; margin-bottom: 4px; }
+.project-item .description { margin: 0.25em 0; }
+.project-item .tech { color: var(--muted); font-size: 90%; margin: 0.15em 0; }
+
+.cert-list { list-style: disc; padding-left: 1.25em; margin: 0; }
+.cert-list li { margin: 0.2em 0; }
+
+/* --- RIGHT sidebar: matches the legacy SideBar (coral spacer + blue spacer + blue bg) --- */
+.sidebar { background-color: var(--light-blue); display: flex; flex-direction: column; }
+.sidebar-spacer { background-color: var(--red); min-height: calc(350% / 100 * 1em + 40px); padding: 20px; }
+.sidebar-subspacer { background-color: var(--light-blue); min-height: calc(175% / 100 * 1em + 40px); padding: 20px; }
+.sidebar-content { flex: 1; padding: 0 10px 20px; }
+
+/* Coordinates block at the top of the sidebar — photo + two-column key/value rows. */
+.coordinates { padding: 10px; margin-bottom: 1.5em; }
+.coordinates .photo { width: 100%; max-width: 130px; aspect-ratio: 1; object-fit: cover; border: 1px solid #ddd; border-radius: 5px; display: block; margin: 0 auto 1em; }
+.no-photo .coordinates .photo { display: none; }
+.coord-row { display: flex; gap: 8px; margin-bottom: 4px; word-break: break-word; font-size: 95%; }
+.coord-row .label { font-weight: 600; color: var(--muted); min-width: 64px; }
+.coord-row a { color: inherit; text-decoration: none; }
+
+/* SideSectionHeader: uppercase title on a gray bar + downward triangle, matching
+   the legacy `sideSectionText` + `TriangleDown` decoration. */
+.side-section { margin-top: 2em; break-inside: avoid; }
+.side-title-wrap { margin-bottom: 1em; }
+.side-title {
+  font-size: 150%;
+  font-weight: 600;
+  background-color: var(--gray);
+  text-transform: uppercase;
+  padding: 20px 20px 20px 10px;
+  margin: 0;
+  white-space: nowrap;
+}
+.side-triangle {
+  width: 0;
+  height: 0;
+  border-left: 15px solid transparent;
+  border-right: 15px solid transparent;
+  border-top: 10px solid var(--gray);
+  margin-left: 40px;
+}
+.side-body { padding: 0 10px; }
+
+.skill-row { margin: 0.35em 0; }
+.skill-row .category { font-weight: 400; font-size: 95%; }
+.skill-row .items { font-weight: 300; font-size: 95%; }
+
+.lang-row { display: flex; margin: 0.3em 0; font-size: 95%; }
+.lang-row .lang-name { font-weight: 400; min-width: 100px; }
+
+a { color: inherit; text-decoration: underline; }
+.page-break { break-before: always; }
+
+@page { size: A4; margin: 0; }

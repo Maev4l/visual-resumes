@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>{{title}}</title>
+    <!-- CSS_PLACEHOLDER -->
+    <script>
+      (() => {
+        try {
+          const p = new URLSearchParams(location.search);
+          if (p.get('picture') === 'false') document.documentElement.classList.add('no-photo');
+        } catch (_) {}
+      })();
+    </script>
+  </head>
+  <body class="tpl-avant paper-{{paperSize}}">
+    <main class="sheet">
+      <aside class="sidebar">
+        {{#each sections}}
+          {{#ifEquals type "contact"}}
+            <div class="personal-data">
+              {{#if ../_photoSrc}}{{#if _meta.supportsPhoto}}
+                <div class="photo-wrap"><img class="photo" src="{{../_photoSrc}}" alt="" /></div>
+              {{/if}}{{/if}}
+              <div class="full-name">{{data.name}}</div>
+              {{#if data.headline}}<div class="headline">{{data.headline}}</div>{{/if}}
+              <div class="coordinates">
+                {{#if data.location}}<div class="coord-row"><span class="label">Location</span><span>{{data.location}}</span></div>{{/if}}
+                {{#if data.email}}<div class="coord-row"><span class="label">Email</span><span>{{data.email}}</span></div>{{/if}}
+                {{#if data.phone}}<div class="coord-row"><span class="label">Phone</span><span>{{data.phone}}</span></div>{{/if}}
+                {{#each data.links}}<div class="coord-row"><span class="label">{{label}}</span><a href="{{url}}">{{url}}</a></div>{{/each}}
+              </div>
+            </div>
+          {{/ifEquals}}
+        {{/each}}
+
+        <div class="side-stack">
+          {{#each sections}}
+            {{#ifEquals type "skills"}}
+              <section class="side-section skills">
+                <h2 class="side-heading"><span>{{sectionTitle this}}</span><span class="rule"></span></h2>
+                {{#each data}}
+                  <div class="skill-row">
+                    {{#if group}}<div class="category">{{group}}</div>{{/if}}
+                    <div class="items">{{#each items}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}</div>
+                  </div>
+                {{/each}}
+              </section>
+            {{/ifEquals}}
+
+            {{#ifEquals type "languages"}}
+              <section class="side-section languages">
+                <h2 class="side-heading"><span>{{sectionTitle this}}</span><span class="rule"></span></h2>
+                {{#each data}}
+                  <div class="lang-row">
+                    <div class="lang-name">{{language}}</div>
+                    <div>{{proficiency}}</div>
+                  </div>
+                {{/each}}
+              </section>
+            {{/ifEquals}}
+
+            {{#ifEquals type "education"}}
+              <section class="side-section education">
+                <h2 class="side-heading"><span>{{sectionTitle this}}</span><span class="rule"></span></h2>
+                {{#each data}}
+                  <article class="edu-item">
+                    <div class="edu-date">{{formatDate startDate}} – {{formatDate endDate}}</div>
+                    <div class="edu-degree">{{degree}}{{#if field}}, {{field}}{{/if}}</div>
+                    <div class="edu-institution">{{institution}}</div>
+                    {{#if notes}}<p class="edu-notes">{{{markdownInline notes}}}</p>{{/if}}
+                  </article>
+                {{/each}}
+              </section>
+            {{/ifEquals}}
+          {{/each}}
+        </div>
+      </aside>
+
+      <article class="main-column">
+        {{#each sections}}
+          {{#if pageBreakBefore}}<div class="page-break"></div>{{/if}}
+
+          {{#ifEquals type "summary"}}
+            <section class="section summary">
+              <h2 class="section-heading center"><span class="rule-left"></span><span>{{sectionTitle this}}</span><span class="rule-right"></span></h2>
+              <div class="body">{{{markdown data.text}}}</div>
+            </section>
+          {{/ifEquals}}
+
+          {{#ifEquals type "experience"}}
+            <section class="section experience">
+              <h2 class="section-heading"><span>{{sectionTitle this}}</span><span class="rule-right"></span></h2>
+              {{#each data}}
+                {{#if pageBreakBefore}}<div class="page-break"></div>{{/if}}
+                <article class="entry">
+                  <div class="dates">{{formatDate startDate}} – {{#if current}}Present{{else}}{{formatDate endDate}}{{/if}}</div>
+                  <div class="details">
+                    <div class="role">{{role}}</div>
+                    <div class="company">{{company}}{{#if location}} · <span class="location">{{location}}</span>{{/if}}</div>
+                    {{#if bullets.length}}
+                      <ul class="bullets">{{#each bullets}}<li>{{{markdownInline this}}}</li>{{/each}}</ul>
+                    {{/if}}
+                  </div>
+                </article>
+              {{/each}}
+            </section>
+          {{/ifEquals}}
+
+          {{#ifEquals type "projects"}}
+            <section class="section projects">
+              <h2 class="section-heading"><span>{{sectionTitle this}}</span><span class="rule-right"></span></h2>
+              {{#each data}}
+                <article class="project-item">
+                  <div class="project-name">{{#if link}}<a href="{{link}}">{{name}}</a>{{else}}{{name}}{{/if}}</div>
+                  <p class="description">{{{markdownInline description}}}</p>
+                  {{#if tech.length}}<p class="tech">{{#each tech}}{{this}}{{#unless @last}} · {{/unless}}{{/each}}</p>{{/if}}
+                  {{#if bullets.length}}<ul class="bullets">{{#each bullets}}<li>{{{markdownInline this}}}</li>{{/each}}</ul>{{/if}}
+                </article>
+              {{/each}}
+            </section>
+          {{/ifEquals}}
+
+          {{#ifEquals type "certifications"}}
+            <section class="section certifications">
+              <h2 class="section-heading"><span>{{sectionTitle this}}</span><span class="rule-right"></span></h2>
+              <ul class="cert-list">
+                {{#each data}}
+                  <li>{{#if link}}<a href="{{link}}">{{name}}</a>{{else}}{{name}}{{/if}} — {{issuer}} ({{formatDate date "YYYY"}})</li>
+                {{/each}}
+              </ul>
+            </section>
+          {{/ifEquals}}
+        {{/each}}
+      </article>
+    </main>
+  </body>
+</html>

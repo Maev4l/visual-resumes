@@ -1,0 +1,7 @@
+{
+  "name": "Modern",
+  "description": "Two-column layout with a coral-red headline, soft-blue name bar, and light-blue sidebar for contact, skills, and languages.",
+  "supportsPhoto": true,
+  "supportedPaperSizes": ["A4", "Letter"],
+  "previewPng": "preview.png"
+}

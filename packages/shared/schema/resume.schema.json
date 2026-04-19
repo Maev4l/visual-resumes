@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Resume",
+  "type": "object",
+  "required": ["id", "ownerCustomId", "title", "templateId", "paperSize", "sections"],
+  "properties": {
+    "id": { "type": "string" },
+    "ownerCustomId": { "type": "string" },
+    "title": { "type": "string", "minLength": 1 },
+    "templateId": { "type": "string", "enum": ["monaco", "modern", "avant"] },
+    "paperSize": { "type": "string", "enum": ["A4", "Letter"] },
+    "photoKey": { "type": ["string", "null"] },
+    "sections": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/section" }
+    },
+    "published": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["slug", "publishedAt"],
+          "properties": {
+            "slug": { "type": "string", "pattern": "^[0-9a-z]{12}$" },
+            "publishedAt": { "type": "string", "format": "date-time" }
+          }
+        }
+      ]
+    }
+  },
+  "definitions": {
+    "section": {
+      "type": "object",
+      "required": ["id", "type", "data"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": {
+          "type": "string",
+          "enum": ["contact", "summary", "experience", "education", "skills", "projects", "languages", "certifications"]
+        },
+        "customTitle": { "type": "string" },
+        "pageBreakBefore": { "type": "boolean", "default": false },
+        "data": {}
+      }
+    },
+    "link":    { "type": "object", "required": ["label", "url"], "properties": { "label": { "type": "string" }, "url": { "type": "string" } } },
+    "contact": {
+      "type": "object",
+      "required": ["name", "email"],
+      "properties": {
+        "name":     { "type": "string" },
+        "headline": { "type": "string" },
+        "email":    { "type": "string" },
+        "phone":    { "type": "string" },
+        "location": { "type": "string" },
+        "links":    { "type": "array", "items": { "$ref": "#/definitions/link" } }
+      }
+    },
+    "summary": { "type": "object", "required": ["text"], "properties": { "text": { "type": "string" } } },
+    "experienceEntry": {
+      "type": "object",
+      "required": ["company", "role", "startDate", "current"],
+      "properties": {
+        "company":   { "type": "string" },
+        "role":      { "type": "string" },
+        "location":  { "type": "string" },
+        "startDate": { "type": "string", "format": "date" },
+        "endDate":   { "type": "string", "format": "date" },
+        "current":   { "type": "boolean" },
+        "bullets":   { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "educationEntry": {
+      "type": "object",
+      "required": ["institution", "degree", "startDate"],
+      "properties": {
+        "institution": { "type": "string" },
+        "degree":      { "type": "string" },
+        "field":       { "type": "string" },
+        "startDate":   { "type": "string", "format": "date" },
+        "endDate":     { "type": "string", "format": "date" },
+        "notes":       { "type": "string" }
+      }
+    },
+    "skillGroup":       { "type": "object", "required": ["items"], "properties": { "group": { "type": "string" }, "items": { "type": "array", "items": { "type": "string" } } } },
+    "projectEntry":     { "type": "object", "required": ["name", "description"], "properties": { "name": { "type": "string" }, "description": { "type": "string" }, "link": { "type": "string" }, "tech": { "type": "array", "items": { "type": "string" } }, "bullets": { "type": "array", "items": { "type": "string" } } } },
+    "languageEntry":    { "type": "object", "required": ["language", "proficiency"], "properties": { "language": { "type": "string" }, "proficiency": { "type": "string" } } },
+    "certificationEntry": { "type": "object", "required": ["name", "issuer", "date"], "properties": { "name": { "type": "string" }, "issuer": { "type": "string" }, "date": { "type": "string", "format": "date" }, "link": { "type": "string" } } }
+  }
+}

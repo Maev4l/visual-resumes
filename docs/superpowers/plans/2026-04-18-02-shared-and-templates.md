@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the cross-package rendering library (`packages/shared`) and the first two resume templates (`monaco` single-column, `modern` two-column-with-sidebar). Both the editor SPA (Preview toggle) and the `renderer` Lambda (publish flow) will import this module.
+**Goal:** Build the cross-package rendering library (`packages/shared`) and the three resume templates (`monaco` single-column, `modern` two-column coral-red masthead, `avant` teal-sidebar). Both the editor SPA (Preview toggle) and the `renderer` Lambda (publish flow) will import this module.
 
 **Architecture:** `packages/shared/` exposes an **isomorphic** core (`renderer.js`, `markdown.js`, `section-types.js`, `schema/`) with zero filesystem imports, plus a Node-only convenience wrapper (`renderer.node.js`) that loads templates from disk. Templates live in `packages/templates/<id>/` as `template.hbs` + `style.css` + `meta.json` + `preview.png`. The HTML output is self-contained: Handlebars renders the body, a marker placeholder in `<head>` gets replaced with an inlined `<style>` block.
 
@@ -44,7 +44,12 @@ packages/
 │   │   ├── style.css
 │   │   ├── meta.json
 │   │   └── preview.png           # placeholder; real screenshot post-MVP
-│   └── modern/
+│   ├── modern/
+│   │   ├── template.hbs
+│   │   ├── style.css
+│   │   ├── meta.json
+│   │   └── preview.png
+│   └── avant/
 │       ├── template.hbs
 │       ├── style.css
 │       ├── meta.json
@@ -180,7 +185,7 @@ git commit -m "feat(functions): package.json + eslint baseline (shared-lib deps)
     "id": { "type": "string" },
     "ownerCustomId": { "type": "string" },
     "title": { "type": "string", "minLength": 1 },
-    "templateId": { "type": "string", "enum": ["monaco", "modern"] },
+    "templateId": { "type": "string", "enum": ["monaco", "modern", "avant"] },
     "paperSize": { "type": "string", "enum": ["A4", "Letter"] },
     "photoKey": { "type": ["string", "null"] },
     "sections": {
@@ -222,6 +227,7 @@ git commit -m "feat(functions): package.json + eslint baseline (shared-lib deps)
       "required": ["name", "email"],
       "properties": {
         "name":     { "type": "string" },
+        "headline": { "type": "string" },
         "email":    { "type": "string" },
         "phone":    { "type": "string" },
         "location": { "type": "string" },
@@ -294,7 +300,7 @@ describe('section-types', () => {
   });
 
   it('returns empty defaults for each type', () => {
-    assert.deepEqual(defaultDataFor('contact'), { name: '', email: '', phone: '', location: '', links: [] });
+    assert.deepEqual(defaultDataFor('contact'), { name: '', headline: '', email: '', phone: '', location: '', links: [] });
     assert.deepEqual(defaultDataFor('summary'), { text: '' });
     assert.deepEqual(defaultDataFor('experience'), []);
     assert.deepEqual(defaultDataFor('education'), []);
@@ -345,7 +351,7 @@ export const SECTION_TYPES = [
 ];
 
 const EMPTY_DATA = {
-  contact:        () => ({ name: '', email: '', phone: '', location: '', links: [] }),
+  contact:        () => ({ name: '', headline: '', email: '', phone: '', location: '', links: [] }),
   summary:        () => ({ text: '' }),
   experience:     () => [],
   education:      () => [],
@@ -773,7 +779,7 @@ git commit -m "feat(shared): Node-only disk loader for templates"
 ```json
 {
   "name": "Monaco",
-  "description": "Single-column classic CV. Clean serifs, understated.",
+  "description": "Single-column CV in Open Sans with green section headers and pipe-separated contact line.",
   "supportsPhoto": true,
   "supportedPaperSizes": ["A4", "Letter"],
   "previewPng": "preview.png"
@@ -928,57 +934,7 @@ git commit -m "feat(shared): Node-only disk loader for templates"
 
 - [ ] **Step 3: `packages/templates/monaco/style.css`**
 
-```css
-/* Monaco — single-column CV */
-
-:root {
-  --body-font: "Georgia", "Source Serif Pro", serif;
-  --heading-font: "Georgia", "Source Serif Pro", serif;
-  --accent: #2b2b2b;
-  --muted: #666;
-  --rule: #d8d8d8;
-  --text: #1a1a1a;
-}
-
-* { box-sizing: border-box; }
-
-html, body { margin: 0; padding: 0; color: var(--text); font-family: var(--body-font); font-size: 10pt; line-height: 1.45; }
-
-.sheet { max-width: 19cm; margin: 0 auto; padding: 0; }
-
-.section { margin: 0 0 1.25em; }
-.section h2 { font-family: var(--heading-font); font-size: 13pt; text-transform: uppercase; letter-spacing: 0.08em; border-bottom: 1px solid var(--rule); margin: 0 0 0.5em; padding-bottom: 0.15em; break-after: avoid; }
-
-.contact { display: grid; grid-template-columns: 1fr auto; gap: 0.5em 1em; align-items: start; }
-.contact .name { font-size: 22pt; margin: 0; font-weight: 700; }
-.contact .photo { width: 80px; height: 80px; object-fit: cover; border-radius: 4px; grid-row: 1 / span 2; justify-self: end; }
-.no-photo .contact .photo { display: none; }
-.contact-list { list-style: none; padding: 0; margin: 0; color: var(--muted); display: flex; flex-wrap: wrap; gap: 0 1em; }
-
-.entry { margin: 0 0 0.75em; break-inside: avoid; }
-.entry header { display: flex; flex-wrap: wrap; gap: 0.3em 0.75em; align-items: baseline; }
-.entry .role-company, .entry .institution, .entry .project-name { margin: 0; font-size: 11pt; font-weight: 700; }
-.entry .dates { color: var(--muted); font-variant-numeric: tabular-nums; }
-.entry .location { color: var(--muted); font-style: italic; }
-.entry .degree { color: var(--muted); margin: 0.15em 0; }
-.entry .description { margin: 0.25em 0; }
-.entry .tech { color: var(--muted); font-size: 9pt; margin: 0.15em 0; }
-
-.bullets { margin: 0.3em 0 0; padding-left: 1.1em; }
-.bullets li { margin: 0.15em 0; break-inside: avoid; }
-
-.skill-groups { list-style: none; padding: 0; margin: 0; }
-.skill-groups li { margin: 0.25em 0; }
-
-.language-list { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 0 1.25em; }
-
-a { color: inherit; text-decoration: underline; }
-
-.page-break { break-before: always; }
-
-@page { size: A4; margin: 14mm; }
-.paper-Letter { /* honored at render time in renderer Lambda via @page override */ }
-```
+Font stack `"Open Sans", "Segoe UI", system-ui, sans-serif` at 15px/300. Section headings are `#6AA84F` (green) with a matching underline; entry dates live in a left column (bold, 125px wide) and details flow in a right column. The email link is `#428BCA` (blue). Photo is optional, shown as 100×100 rounded thumb in the contact block with a pipe-separated coordinates line (location | email | phone | links).
 
 - [ ] **Step 4: `packages/templates/monaco/preview.png`**
 
@@ -1012,7 +968,7 @@ git commit -m "feat(templates): monaco (single-column classic)"
 ```json
 {
   "name": "Modern",
-  "description": "Two-column with sidebar for contact + skills. Sans-serif, compact.",
+  "description": "Two-column layout with a coral-red headline, soft-blue name bar, and light-blue sidebar for contact, skills, and languages.",
   "supportsPhoto": true,
   "supportedPaperSizes": ["A4", "Letter"],
   "previewPng": "preview.png"
@@ -1155,55 +1111,7 @@ git commit -m "feat(templates): monaco (single-column classic)"
 
 - [ ] **Step 3: `packages/templates/modern/style.css`**
 
-```css
-/* Modern — two-column with sidebar */
-
-:root {
-  --body-font: "Inter", "Helvetica Neue", Arial, sans-serif;
-  --accent: #0b4f6c;
-  --accent-soft: #e8f0f3;
-  --muted: #555;
-  --text: #111;
-}
-
-* { box-sizing: border-box; }
-
-html, body { margin: 0; padding: 0; color: var(--text); font-family: var(--body-font); font-size: 10pt; line-height: 1.45; }
-
-.sheet { display: grid; grid-template-columns: 6.5cm 1fr; gap: 0; max-width: 21cm; margin: 0 auto; min-height: 27.5cm; }
-
-.sidebar { background: var(--accent-soft); padding: 16mm 10mm; }
-.sidebar .photo { width: 100%; max-width: 130px; aspect-ratio: 1; object-fit: cover; border-radius: 6px; display: block; margin: 0 auto 0.75em; }
-.no-photo .sidebar .photo { display: none; }
-.sidebar .name { margin: 0 0 0.3em; font-size: 16pt; color: var(--accent); }
-.sidebar ul { list-style: none; padding: 0; margin: 0 0 1em; }
-.sidebar li { margin: 0.15em 0; color: var(--muted); word-break: break-word; }
-.sidebar .section h2 { font-size: 10pt; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent); border-bottom: 1px solid var(--accent); padding-bottom: 0.2em; margin: 0.8em 0 0.4em; break-after: avoid; }
-.sidebar .skill-group h3 { font-size: 9pt; text-transform: uppercase; color: var(--muted); margin: 0.4em 0 0.1em; }
-.sidebar .skill-group p { margin: 0; }
-
-.main-column { padding: 16mm 12mm; }
-.main-column .section { margin: 0 0 1em; }
-.main-column .section h2 { font-size: 14pt; color: var(--accent); border-bottom: 2px solid var(--accent); padding-bottom: 0.2em; margin: 0 0 0.5em; break-after: avoid; }
-
-.entry { margin: 0 0 0.75em; break-inside: avoid; }
-.entry header { display: grid; grid-template-columns: 1fr auto; gap: 0 0.75em; align-items: baseline; }
-.entry h3 { margin: 0; font-size: 11pt; font-weight: 700; }
-.entry h3 .at { color: var(--muted); font-weight: 400; }
-.entry .dates { color: var(--muted); font-variant-numeric: tabular-nums; }
-.entry .location { color: var(--muted); font-size: 9pt; grid-column: 1 / -1; }
-
-.bullets { margin: 0.3em 0 0; padding-left: 1.1em; }
-.bullets li { margin: 0.15em 0; break-inside: avoid; }
-
-.tech { color: var(--muted); font-size: 9pt; margin: 0.15em 0; }
-
-a { color: var(--accent); text-decoration: underline; }
-
-.page-break { break-before: always; }
-
-@page { size: A4; margin: 0; }
-```
+Font stack `"Source Sans Pro", "Segoe UI", system-ui, sans-serif` at 11pt/300. Grid sheet is 65%/35% (main on LEFT, sidebar on RIGHT). Masthead: coral-red `#EA7777` headline at 350% sits above a soft-blue `#F2F7FB` name bar at 175%. A white CSS-border downward triangle (replacing the legacy TriangleDown SVG) is pinned at the join, with a soft drop-shadow. Sidebar mirrors the masthead heights with a coral-red spacer + soft-blue spacer, then a key/value coordinates block and skills/languages sections. Sidebar section titles sit on a gray `#E5EAEf` bar with a matching downward triangle below them.
 
 - [ ] **Step 4: `packages/templates/modern/preview.png`**
 
@@ -1223,7 +1131,48 @@ git commit -m "feat(templates): modern (two-column sidebar)"
 
 ---
 
-### Task 9: End-to-end render smoke test (both templates)
+### Task 8b: Template `avant` (teal-sidebar, two-column)
+
+**Files:**
+- Create: `packages/templates/avant/template.hbs`
+- Create: `packages/templates/avant/style.css`
+- Create: `packages/templates/avant/meta.json`
+- Create: `packages/templates/avant/preview.png`
+
+Layout mirrors the legacy Avant template: 35% left solid-teal (#3DC1A4) sidebar with white text holds contact + photo + skills + languages + education; 65% right white main column holds summary + experience. Section headings use a horizontal rule after the title, and the summary title is centered with rules on both sides.
+
+- [ ] **Step 1: `packages/templates/avant/meta.json`**
+
+```json
+{
+  "name": "Avant",
+  "description": "Teal-sidebar resume with a white main column. Circular photo, rule-decorated section headers.",
+  "supportsPhoto": true,
+  "supportedPaperSizes": ["A4", "Letter"],
+  "previewPng": "preview.png"
+}
+```
+
+- [ ] **Step 2: `packages/templates/avant/template.hbs`** — same `{{#each sections}}` dispatcher pattern as monaco/modern, but sidebar holds contact/skills/languages/education and main column holds summary/experience/projects/certifications.
+
+- [ ] **Step 3: `packages/templates/avant/style.css`** — system-font stack `"Assistant", "Inter", system-ui, sans-serif`, 15px/300. Teal sidebar, circular photo with `border: 5px double white`. Section headings use flex + a thin rule element after the title.
+
+- [ ] **Step 4: `packages/templates/avant/preview.png`**
+
+```bash
+cp packages/templates/monaco/preview.png packages/templates/avant/preview.png
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/templates/avant
+git commit -m "feat(templates): avant (teal-sidebar)"
+```
+
+---
+
+### Task 9: End-to-end render smoke test (all three templates)
 
 **Files:**
 - Create: `packages/shared/templates.e2e.test.js`
@@ -1274,7 +1223,7 @@ const fixture = {
   templateId: '',  // per-case
 };
 
-for (const templateId of ['monaco', 'modern']) {
+for (const templateId of ['monaco', 'modern', 'avant']) {
   describe(`template: ${templateId}`, () => {
     const html = renderFromDisk({ templatesDir, resume: { ...fixture, templateId } });
 

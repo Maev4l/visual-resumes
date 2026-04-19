@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>{{title}}</title>
+    <!-- CSS_PLACEHOLDER -->
+    <script>
+      (() => {
+        try {
+          const p = new URLSearchParams(location.search);
+          if (p.get('picture') === 'false') document.documentElement.classList.add('no-photo');
+        } catch (_) {}
+      })();
+    </script>
+  </head>
+  <body class="tpl-modern paper-{{paperSize}}">
+    <main class="sheet">
+      <article class="main-column">
+        {{#each sections}}
+          {{#ifEquals type "contact"}}
+            <header class="masthead">
+              <div class="headline">{{#if data.headline}}{{data.headline}}{{/if}}</div>
+              <div class="triangle" aria-hidden="true"></div>
+              <div class="name-bar">{{data.name}}</div>
+            </header>
+          {{/ifEquals}}
+        {{/each}}
+
+        {{#each sections}}
+          {{#if pageBreakBefore}}<div class="page-break"></div>{{/if}}
+
+          {{#ifEquals type "summary"}}
+            <section class="section summary">
+              <h2>{{sectionTitle this}}</h2>
+              <div class="body">{{{markdown data.text}}}</div>
+            </section>
+          {{/ifEquals}}
+
+          {{#ifEquals type "experience"}}
+            <section class="section experience">
+              <h2>{{sectionTitle this}}</h2>
+              {{#each data}}
+                {{#if pageBreakBefore}}<div class="page-break"></div>{{/if}}
+                <article class="entry">
+                  <div class="dates">{{formatDate startDate}} – {{#if current}}Present{{else}}{{formatDate endDate}}{{/if}}</div>
+                  <div class="details">
+                    <div class="role">{{role}}</div>
+                    <div class="company">{{company}}{{#if location}} · <span class="location">{{location}}</span>{{/if}}</div>
+                    {{#if bullets.length}}
+                      <ul class="bullets">{{#each bullets}}<li>{{{markdownInline this}}}</li>{{/each}}</ul>
+                    {{/if}}
+                  </div>
+                </article>
+              {{/each}}
+            </section>
+          {{/ifEquals}}
+
+          {{#ifEquals type "education"}}
+            <section class="section education">
+              <h2>{{sectionTitle this}}</h2>
+              {{#each data}}
+                <article class="entry">
+                  <div class="dates">{{formatDate startDate}} – {{formatDate endDate}}</div>
+                  <div class="details">
+                    <div class="degree">{{degree}}{{#if field}}, {{field}}{{/if}}</div>
+                    <div class="institution">{{institution}}</div>
+                    {{#if notes}}<p class="notes">{{{markdownInline notes}}}</p>{{/if}}
+                  </div>
+                </article>
+              {{/each}}
+            </section>
+          {{/ifEquals}}
+
+          {{#ifEquals type "projects"}}
+            <section class="section projects">
+              <h2>{{sectionTitle this}}</h2>
+              {{#each data}}
+                <article class="entry project-item">
+                  <div class="project-name">{{#if link}}<a href="{{link}}">{{name}}</a>{{else}}{{name}}{{/if}}</div>
+                  <p class="description">{{{markdownInline description}}}</p>
+                  {{#if tech.length}}<p class="tech">{{#each tech}}{{this}}{{#unless @last}} · {{/unless}}{{/each}}</p>{{/if}}
+                  {{#if bullets.length}}<ul class="bullets">{{#each bullets}}<li>{{{markdownInline this}}}</li>{{/each}}</ul>{{/if}}
+                </article>
+              {{/each}}
+            </section>
+          {{/ifEquals}}
+
+          {{#ifEquals type "certifications"}}
+            <section class="section certifications">
+              <h2>{{sectionTitle this}}</h2>
+              <ul class="cert-list">
+                {{#each data}}
+                  <li>{{#if link}}<a href="{{link}}">{{name}}</a>{{else}}{{name}}{{/if}} — {{issuer}} ({{formatDate date "YYYY"}})</li>
+                {{/each}}
+              </ul>
+            </section>
+          {{/ifEquals}}
+        {{/each}}
+      </article>
+
+      <aside class="sidebar">
+        <div class="sidebar-spacer"></div>
+        <div class="sidebar-subspacer"></div>
+        <div class="sidebar-content">
+          {{#each sections}}
+            {{#ifEquals type "contact"}}
+              <div class="coordinates">
+                {{#if ../_photoSrc}}{{#if _meta.supportsPhoto}}
+                  <img class="photo" src="{{../_photoSrc}}" alt="" />
+                {{/if}}{{/if}}
+                {{#if data.location}}<div class="coord-row"><span class="label">Location</span><span>{{data.location}}</span></div>{{/if}}
+                {{#if data.email}}<div class="coord-row"><span class="label">Email</span><span>{{data.email}}</span></div>{{/if}}
+                {{#if data.phone}}<div class="coord-row"><span class="label">Phone</span><span>{{data.phone}}</span></div>{{/if}}
+                {{#each data.links}}<div class="coord-row"><span class="label">{{label}}</span><a href="{{url}}">{{url}}</a></div>{{/each}}
+              </div>
+            {{/ifEquals}}
+          {{/each}}
+
+          {{#each sections}}
+            {{#ifEquals type "skills"}}
+              <section class="side-section skills">
+                <div class="side-title-wrap">
+                  <h2 class="side-title">{{sectionTitle this}}</h2>
+                  <div class="side-triangle" aria-hidden="true"></div>
+                </div>
+                <div class="side-body">
+                  {{#each data}}
+                    <div class="skill-row">
+                      {{#if group}}<div class="category">{{group}}</div>{{/if}}
+                      <div class="items">{{#each items}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}</div>
+                    </div>
+                  {{/each}}
+                </div>
+              </section>
+            {{/ifEquals}}
+
+            {{#ifEquals type "languages"}}
+              <section class="side-section languages">
+                <div class="side-title-wrap">
+                  <h2 class="side-title">{{sectionTitle this}}</h2>
+                  <div class="side-triangle" aria-hidden="true"></div>
+                </div>
+                <div class="side-body">
+                  {{#each data}}
+                    <div class="lang-row">
+                      <div class="lang-name">{{language}}</div>
+                      <div>{{proficiency}}</div>
+                    </div>
+                  {{/each}}
+                </div>
+              </section>
+            {{/ifEquals}}
+          {{/each}}
+        </div>
+      </aside>
+    </main>
+  </body>
+</html>

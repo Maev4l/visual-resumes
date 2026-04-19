@@ -1,0 +1,7 @@
+{
+  "name": "Avant",
+  "description": "Teal-sidebar resume with a white main column. Circular photo, rule-decorated section headers.",
+  "supportsPhoto": true,
+  "supportedPaperSizes": ["A4", "Letter"],
+  "previewPng": "preview.png"
+}
