@@ -1,7 +1,7 @@
-// Landing page after auth: lists the current user's resumes, plus quick actions to
-// create / edit / delete / unpublish. We special-case the 403 response from listResumes
-// as "pending approval" because the API rejects users who authenticate but aren't in
-// the approved Cognito group — redirecting to /pending avoids a confusing error card.
+// packages/editor/src/pages/Dashboard.jsx
+// Landing page after auth. Resumes are presented as a "shelf" of paper cards:
+// serif title, metadata margin notes in small-caps mono, oxblood dot + mono label
+// for published status. Actions live in a ghost dropdown so the card stays calm.
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -10,8 +10,8 @@ import { Plus, ExternalLink, MoreVertical } from 'lucide-react';
 
 import { useAuth } from '@/auth/useAuth';
 import { api, ApiError } from '@/api/client';
+import { getConfig } from '@/config';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,6 +19,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import Page from '@/components/editorial/Page';
+import Wordmark from '@/components/editorial/Wordmark';
+import RuleLine from '@/components/editorial/RuleLine';
+import MetaChip from '@/components/editorial/MetaChip';
+import PaperCard from '@/components/editorial/PaperCard';
 
 const Dashboard = () => {
   const { logout } = useAuth();
@@ -26,8 +31,6 @@ const Dashboard = () => {
   const [error, setError] = useState(null);
   const navigate = useNavigate();
 
-  // useCallback so the effect below sees a stable reference and we can call load()
-  // from the action handlers without triggering re-fetches on every render.
   const load = useCallback(() => {
     api.listResumes()
       .then(({ data }) => setRows(data.resumes))
@@ -40,8 +43,6 @@ const Dashboard = () => {
   useEffect(() => { load(); }, [load]);
 
   const onDelete = async (id) => {
-    // confirm() is intentional: this is a destructive, cross-page action (unpublishes too)
-    // and we don't have a reusable confirm-dialog primitive yet.
     if (!confirm('Delete this resume? Also unpublishes it if published.')) return;
     try { await api.deleteResume(id); toast.success('Deleted'); load(); }
     catch (err) { toast.error(`Delete failed: ${err.message}`); }
@@ -52,80 +53,121 @@ const Dashboard = () => {
     catch (err) { toast.error(`Unpublish failed: ${err.message}`); }
   };
 
+  const onPublish = async (id) => {
+    try {
+      const { data } = await api.publish(id);
+      const url = `https://${getConfig().publicHost}/resumes/${data.slug}.html`;
+      toast.success('Published', {
+        description: url,
+        action: { label: 'Copy', onClick: () => navigator.clipboard.writeText(url) },
+      });
+      load();
+    } catch (err) {
+      toast.error(`Publish failed: ${err.message}`);
+    }
+  };
+
   return (
-    <main className="min-h-screen bg-muted/20">
-      <div className="max-w-5xl mx-auto p-6">
-        <header className="flex items-center gap-4 mb-6">
-          <h1 className="text-2xl font-semibold flex-1">Your resumes</h1>
-          <Button asChild>
-            <Link to="/new"><Plus className="size-4" /> Create new</Link>
+    <Page width="standard">
+      <header className="flex items-end gap-6 mb-8">
+        <Wordmark size="md" />
+        <div className="ml-auto flex items-center gap-3">
+          <Button asChild className="rounded-sm bg-[var(--color-ink)] hover:bg-[var(--color-ink-soft)] text-[var(--color-paper)]">
+            <Link to="/new"><Plus className="size-4" /> New resume</Link>
           </Button>
-          <Button variant="ghost" onClick={logout}>Sign out</Button>
-        </header>
-
-        {error && <p role="alert" className="text-destructive">Error: {error}</p>}
-        {rows === null && !error && <p className="text-muted-foreground">Loading…</p>}
-        {rows?.length === 0 && (
-          <Card>
-            <CardContent className="py-8 text-center text-muted-foreground">
-              No resumes yet. Click <strong>Create new</strong>.
-            </CardContent>
-          </Card>
-        )}
-
-        <div className="grid gap-3">
-          {rows?.map((r) => (
-            <Card key={r.id}>
-              <CardHeader className="flex flex-row items-start gap-4 space-y-0">
-                <div className="flex-1">
-                  <CardTitle className="text-base">{r.title}</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    {r.meta ?? `${r.templateId} · ${r.paperSize} · updated ${dayjs(r.updatedAt).format('YYYY-MM-DD')}`}
-                  </p>
-                  {r.published && (
-                    <p className="text-sm mt-1">
-                      <span className="inline-flex items-center gap-1 text-emerald-700">● published</span>
-                      {' · '}
-                      <a className="underline" href={`/resumes/${r.published.slug}.html`} target="_blank" rel="noreferrer">
-                        HTML <ExternalLink className="inline size-3" />
-                      </a>
-                      {' · '}
-                      <a className="underline" href={`/resumes/${r.published.slug}.pdf`} target="_blank" rel="noreferrer">
-                        PDF <ExternalLink className="inline size-3" />
-                      </a>
-                    </p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" asChild>
-                    <Link to={`/edit/${r.id}`}>Edit</Link>
-                  </Button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" aria-label="Actions">
-                        <MoreVertical className="size-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      {r.published && (
-                        <DropdownMenuItem onClick={() => onUnpublish(r.id)}>Unpublish</DropdownMenuItem>
-                      )}
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        className="text-destructive focus:text-destructive"
-                        onClick={() => onDelete(r.id)}
-                      >
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </CardHeader>
-            </Card>
-          ))}
+          <Button variant="ghost" onClick={logout} className="text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]">
+            Sign out
+          </Button>
         </div>
+      </header>
+
+      <RuleLine variant="double" className="mb-8" />
+
+      <div className="flex items-baseline justify-between mb-6">
+        <h2 className="font-serif text-2xl font-normal text-[var(--color-ink)]">Your shelf</h2>
+        <MetaChip>
+          {rows ? `${rows.length} document${rows.length === 1 ? '' : 's'}` : '—'}
+        </MetaChip>
       </div>
-    </main>
+
+      {error && (
+        <p role="alert" className="font-meta text-[var(--color-oxblood)]">Error · {error}</p>
+      )}
+      {rows === null && !error && (
+        <p className="font-meta">Loading…</p>
+      )}
+      {rows?.length === 0 && (
+        <PaperCard className="p-10 text-center">
+          <p className="font-serif italic text-lg text-[var(--color-ink-faint)]">Your shelf is empty.</p>
+          <p className="mt-2 text-sm text-[var(--color-ink-faint)]">
+            Start with <Link to="/new" className="underline decoration-[var(--color-oxblood)] decoration-2 underline-offset-4 text-[var(--color-ink)]">New resume</Link>.
+          </p>
+        </PaperCard>
+      )}
+
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        {rows?.map((r) => (
+          <PaperCard key={r.id} interactive className="p-5 flex flex-col">
+            <div className="flex items-start gap-2 mb-3">
+              <MetaChip tone={r.published ? 'live' : 'muted'} className="flex-1">
+                {r.published ? 'Published' : 'Draft'}
+                <span className="mx-1 opacity-60">·</span>
+                {r.templateId}
+                <span className="mx-1 opacity-60">·</span>
+                {r.paperSize}
+              </MetaChip>
+              <DropdownMenu>
+                {/* Plain <button> (not shadcn's <Button>) so we bypass the Slot + asChild
+                    interaction — some shadcn/Radix version combos fail to forward click
+                    events through the Slot wrapper. */}
+                <DropdownMenuTrigger
+                  aria-label="Actions"
+                  className="-m-2 size-8 inline-flex items-center justify-center rounded-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)] hover:bg-[var(--color-paper-deep)] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-ink)]"
+                >
+                  <MoreVertical className="size-4" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {r.published
+                    ? <DropdownMenuItem onClick={() => onUnpublish(r.id)}>Unpublish</DropdownMenuItem>
+                    : <DropdownMenuItem onClick={() => onPublish(r.id)}>Publish</DropdownMenuItem>}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-[var(--color-oxblood)] focus:text-[var(--color-oxblood)]"
+                    onClick={() => onDelete(r.id)}
+                  >
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+
+            <Link to={`/edit/${r.id}`} className="group block flex-1">
+              <h3 className="font-serif text-xl font-normal leading-tight text-[var(--color-ink)] group-hover:text-[var(--color-oxblood)] transition-colors">
+                {r.title || <span className="italic text-[var(--color-ink-faint)]">Untitled</span>}
+              </h3>
+              <p className="mt-3 font-meta">
+                Updated {dayjs(r.updatedAt).format('D MMM YYYY')}
+              </p>
+            </Link>
+
+            {r.published && (
+              <div className="mt-4 pt-3 border-t border-[var(--color-rule-soft)] flex gap-3 font-meta">
+                {/* Absolute URL against the production host so dev links go to the real
+                    published page rather than resolving against `localhost:5178`. */}
+                <a href={`https://${getConfig().publicHost}/resumes/${r.published.slug}.html`} target="_blank" rel="noreferrer"
+                   className="inline-flex items-center gap-1 hover:text-[var(--color-ink)]">
+                  HTML <ExternalLink className="size-3" />
+                </a>
+                <a href={`https://${getConfig().publicHost}/resumes/${r.published.slug}.pdf`} target="_blank" rel="noreferrer"
+                   className="inline-flex items-center gap-1 hover:text-[var(--color-ink)]">
+                  PDF <ExternalLink className="size-3" />
+                </a>
+              </div>
+            )}
+          </PaperCard>
+        ))}
+      </div>
+    </Page>
   );
 };
 

@@ -5,6 +5,20 @@ import { ArrowDown, ArrowUp, X, Plus } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import FieldHint from '@/components/editorial/FieldHint';
+import { hint } from '../hints';
+
+// Same terse H helper — only render the hint on the first entry so the typographic
+// legend appears once per section, not under every repeated row.
+const H = ({ children, hintKey, first }) => {
+  const h = first ? hint('languages', hintKey) : null;
+  return (
+    <div className="grid gap-0.5">
+      <Label>{children}</Label>
+      {h && <FieldHint as={h.as}>{h.text}</FieldHint>}
+    </div>
+  );
+};
 
 const blank = () => ({ language: '', proficiency: '' });
 
@@ -45,11 +59,11 @@ const LanguagesForm = ({ data, onChange }) => {
 
           <div className="grid sm:grid-cols-2 gap-3">
             <div className="grid gap-1">
-              <Label>Language</Label>
+              <H hintKey="language" first={i === 0}>Language</H>
               <Input value={e.language} onChange={(ev) => replaceAt(i, { language: ev.target.value })} />
             </div>
             <div className="grid gap-1">
-              <Label>Proficiency</Label>
+              <H hintKey="proficiency" first={i === 0}>Proficiency</H>
               <Input
                 value={e.proficiency}
                 onChange={(ev) => replaceAt(i, { proficiency: ev.target.value })}

@@ -1,16 +1,18 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="no-photo">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>{{title}}</title>
     <!-- CSS_PLACEHOLDER -->
     <script>
-      // Optional photo-hide toggle via ?picture=false
+      // Photo is hidden by default (class="no-photo" on <html>). `?picture=true` in the URL
+      // reveals it — so sharing the bare URL gives a photo-less version and the author opts
+      // in to a photo-bearing variant by appending the query string.
       (() => {
         try {
           const p = new URLSearchParams(location.search);
-          if (p.get('picture') === 'false') document.documentElement.classList.add('no-photo');
+          if (p.get('picture') === 'true') document.documentElement.classList.remove('no-photo');
         } catch (_) {}
       })();
     </script>
@@ -23,7 +25,7 @@
         {{#ifEquals type "contact"}}
           <header class="contact section">
             <div class="contact-body">
-              {{#if ../_photoSrc}}{{#if _meta.supportsPhoto}}
+              {{#if ../_photoSrc}}{{#if ../_meta.supportsPhoto}}
                 <img class="photo" src="{{../_photoSrc}}" alt="" />
               {{/if}}{{/if}}
               <div class="contact-text">
@@ -31,9 +33,9 @@
                 {{#if data.headline}}<div class="headline">{{data.headline}}</div>{{/if}}
                 <div class="coordinates">
                   {{#if data.location}}<span>{{data.location}}</span>{{/if}}
-                  {{#if data.email}}{{#if data.location}}<span class="sep">|</span>{{/if}}<a class="email" href="mailto:{{data.email}}">{{data.email}}</a>{{/if}}
-                  {{#if data.phone}}<span class="sep">|</span><span>{{data.phone}}</span>{{/if}}
-                  {{#each data.links}}<span class="sep">|</span><a href="{{url}}">{{label}}</a>{{/each}}
+                  {{#if data.email}}<a class="email" href="mailto:{{data.email}}">{{data.email}}</a>{{/if}}
+                  {{#if data.phone}}<span>{{formatPhone data.phone}}</span>{{/if}}
+                  {{#each data.links}}<a href="{{url}}">{{label}}</a>{{/each}}
                 </div>
               </div>
             </div>
@@ -54,15 +56,13 @@
               {{#if pageBreakBefore}}<div class="page-break"></div>{{/if}}
               <article class="entry history-item">
                 <div class="dates">
-                  {{formatDate startDate}} – {{#if current}}Present{{else}}{{formatDate endDate}}{{/if}}
+                  {{formatDate startDate "MMMM YYYY"}} – {{#if current}}Present{{else}}{{formatDate endDate "MMMM YYYY"}}{{/if}}
                 </div>
                 <div class="details">
                   <div class="role">{{role}}</div>
                   <div class="company">{{company}}{{#if location}} — <span class="location">{{location}}</span>{{/if}}</div>
-                  {{#if bullets.length}}
-                    <ul class="bullets">
-                      {{#each bullets}}<li>{{{markdownInline this}}}</li>{{/each}}
-                    </ul>
+                  {{#if body}}
+                    <div class="bullets">{{{markdown body}}}</div>
                   {{/if}}
                 </div>
               </article>
@@ -75,7 +75,7 @@
             <h2>{{sectionTitle this}}</h2>
             {{#each data}}
               <article class="entry edu-item">
-                <div class="dates">{{formatDate startDate}} – {{formatDate endDate}}</div>
+                <div class="dates">{{formatDate startDate "MMMM YYYY"}}{{#if endDate}} – {{formatDate endDate "MMMM YYYY"}}{{/if}}</div>
                 <div class="details">
                   <div class="degree">{{degree}}{{#if field}}, {{field}}{{/if}}</div>
                   <div class="institution">{{institution}}</div>

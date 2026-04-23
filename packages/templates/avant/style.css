@@ -4,6 +4,8 @@
    horizontal rule after the title (and also before it for centered summary title) to
    match the legacy SectionHeader with flex-center + leftSectionLine / rightSectionLine. */
 
+@import url("https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;500;600;700&display=swap");
+
 :root {
   --body-font: "Assistant", "Inter", system-ui, sans-serif;
   --teal: #3DC1A4;
@@ -98,8 +100,13 @@ html, body { margin: 0; padding: 0; color: var(--text); font-family: var(--body-
 .entry .company { color: var(--dark-gray); font-weight: 700; margin-bottom: 4px; }
 .entry .company .location { color: var(--dark-gray); font-style: italic; font-weight: 400; }
 
-.bullets { margin: 0.3em 0 0; padding-left: 1.25em; }
+/* `.bullets` is a wrapper <div> around markdown-rendered body content — paragraphs,
+   ordered/unordered lists, and nested lists. Target the block descendants explicitly. */
+.bullets { margin: 0.3em 0 0; }
+.bullets p { margin: 0.3em 0; }
+.bullets ul { margin: 0.3em 0; padding-left: 1.25em; }
 .bullets li { margin: 0.15em 0; break-inside: avoid; }
+.bullets ul ul { margin: 0.15em 0; padding-left: 1.1em; }
 
 .project-item { margin: 0.5em 0; break-inside: avoid; }
 .project-item .project-name { font-weight: 700; margin-bottom: 4px; }

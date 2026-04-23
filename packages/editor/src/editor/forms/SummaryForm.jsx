@@ -1,19 +1,23 @@
-// Summary section form — single free-form textarea.
-// WHY minimal: the payload is `{ text }`; any richer structure belongs in a dedicated
-// section type rather than this one.
-import { Textarea } from '@/components/ui/textarea';
+// packages/editor/src/editor/forms/SummaryForm.jsx
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import FieldHint from '@/components/editorial/FieldHint';
+import { hint } from '../hints';
 
-const SummaryForm = ({ data, onChange }) => (
-  <div className="grid gap-1">
-    <Label>Summary</Label>
-    <Textarea
-      rows={5}
-      value={data.text ?? ''}
-      onChange={(e) => onChange({ ...data, text: e.target.value })}
-      placeholder="A concise professional summary…"
-    />
-  </div>
-);
+const SummaryForm = ({ data, onChange }) => {
+  const h = hint('summary', 'text');
+  return (
+    <div className="grid gap-1.5">
+      <Label>Text</Label>
+      {h && <FieldHint as={h.as}>{h.text}</FieldHint>}
+      <Textarea
+        rows={4}
+        value={data.text ?? ''}
+        onChange={(e) => onChange({ text: e.target.value })}
+        placeholder="A short lead paragraph…"
+      />
+    </div>
+  );
+};
 
 export default SummaryForm;

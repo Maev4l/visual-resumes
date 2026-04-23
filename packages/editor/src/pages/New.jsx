@@ -1,6 +1,7 @@
-// "Create a resume" page — collects the minimum fields needed to POST /resumes, then
-// hands off to the Edit page. Template options come straight from the local TEMPLATES
-// registry so the choices here always match what the preview renderer can actually render.
+// packages/editor/src/pages/New.jsx
+// Template picker. Each template is a PaperCard in a grid; the active one gets an
+// ink border and the oxblood "Selected" chip. Inputs sit on the canvas without
+// shadcn Card chrome.
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -11,9 +12,11 @@ import { TEMPLATES } from '@/templates';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import Page from '@/components/editorial/Page';
+import RuleLine from '@/components/editorial/RuleLine';
+import MetaChip from '@/components/editorial/MetaChip';
+import PaperCard from '@/components/editorial/PaperCard';
 
 const New = () => {
   const navigate = useNavigate();
@@ -36,65 +39,95 @@ const New = () => {
   };
 
   return (
-    <main className="min-h-screen bg-muted/20">
-      <div className="max-w-2xl mx-auto p-6">
-        <Button variant="ghost" size="sm" asChild className="mb-4">
-          <Link to="/"><ArrowLeft className="size-4" /> Back</Link>
-        </Button>
+    <Page width="standard">
+      <Button variant="ghost" size="sm" asChild className="mb-6 -ml-2 text-[var(--color-ink-faint)]">
+        <Link to="/"><ArrowLeft className="size-4" /> Shelf</Link>
+      </Button>
 
-        <Card>
-          <CardHeader><CardTitle>Create a resume</CardTitle></CardHeader>
-          <CardContent>
-            <form onSubmit={onSubmit} className="grid gap-6">
-              <div className="grid gap-2">
-                <Label htmlFor="title">Title (internal only)</Label>
-                <Input
-                  id="title"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="EN — Senior Engineer"
-                />
-              </div>
+      <MetaChip className="mb-3">New document</MetaChip>
+      <h1 className="font-serif text-4xl font-light text-[var(--color-ink)]">
+        Compose a new résumé
+      </h1>
+      <RuleLine variant="double" className="mt-6 mb-10" />
 
-              <div className="grid gap-2">
-                <Label>Template</Label>
-                {/* Labels wrap each radio so the whole card is a click target. */}
-                <RadioGroup value={templateId} onValueChange={setTemplateId} className="grid gap-3">
-                  {Object.entries(TEMPLATES).map(([id, t]) => (
-                    <Label
-                      key={id}
-                      htmlFor={`tpl-${id}`}
-                      className={`flex items-start gap-3 rounded-md border p-3 cursor-pointer ${templateId === id ? 'border-primary bg-accent/40' : ''}`}
-                    >
-                      <RadioGroupItem value={id} id={`tpl-${id}`} />
-                      <span className="grid gap-1">
-                        <span className="font-medium">{t.meta.name}</span>
-                        <span className="text-sm text-muted-foreground">{t.meta.description}</span>
-                      </span>
-                    </Label>
-                  ))}
-                </RadioGroup>
-              </div>
+      <form onSubmit={onSubmit} className="grid gap-10">
+        <section className="grid gap-3">
+          <div className="flex items-baseline justify-between">
+            <Label htmlFor="title" className="font-serif text-lg font-normal text-[var(--color-ink)]">
+              Title
+            </Label>
+            <MetaChip>Internal only</MetaChip>
+          </div>
+          <Input
+            id="title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="EN · Senior Engineer"
+            className="rounded-sm bg-[var(--color-paper)] border-[var(--color-rule)] focus-visible:border-[var(--color-ink)] font-serif text-xl h-12"
+          />
+          <span className="font-meta">Not shown publicly. Used to tell versions apart on your shelf.</span>
+        </section>
 
-              <div className="grid gap-2">
-                <Label htmlFor="paper">Paper size</Label>
-                <Select value={paperSize} onValueChange={setPaperSize}>
-                  <SelectTrigger id="paper"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="A4">A4</SelectItem>
-                    <SelectItem value="Letter">Letter</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+        <section className="grid gap-4">
+          <div className="flex items-baseline justify-between">
+            <h2 className="font-serif text-lg font-normal text-[var(--color-ink)]">Template</h2>
+            <MetaChip>{Object.keys(TEMPLATES).length} available</MetaChip>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {Object.entries(TEMPLATES).map(([id, t]) => {
+              const active = templateId === id;
+              return (
+                <PaperCard
+                  as="button"
+                  key={id}
+                  type="button"
+                  interactive
+                  active={active}
+                  onClick={() => setTemplateId(id)}
+                  className="p-5 text-left"
+                >
+                  <MetaChip tone={active ? 'live' : 'muted'}>
+                    {active ? 'Selected' : t.meta.supportsPhoto ? 'Photo' : 'No photo'}
+                  </MetaChip>
+                  <h3 className="mt-3 font-serif text-2xl font-normal text-[var(--color-ink)]">
+                    {t.meta.name}
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-[var(--color-ink-faint)]">
+                    {t.meta.description}
+                  </p>
+                </PaperCard>
+              );
+            })}
+          </div>
+        </section>
 
-              <div className="flex justify-end">
-                <Button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create'}</Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-    </main>
+        <section className="grid gap-3">
+          <Label className="font-serif text-lg font-normal text-[var(--color-ink)]">Paper size</Label>
+          <Select value={paperSize} onValueChange={setPaperSize}>
+            <SelectTrigger className="w-40 rounded-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="A4">A4</SelectItem>
+              <SelectItem value="Letter">Letter</SelectItem>
+            </SelectContent>
+          </Select>
+        </section>
+
+        <RuleLine />
+
+        <div className="flex items-center justify-end gap-3">
+          <Button variant="ghost" asChild className="text-[var(--color-ink-faint)]">
+            <Link to="/">Cancel</Link>
+          </Button>
+          <Button
+            type="submit"
+            disabled={busy}
+            className="rounded-sm bg-[var(--color-ink)] hover:bg-[var(--color-ink-soft)] text-[var(--color-paper)]"
+          >
+            {busy ? 'Composing…' : 'Begin composition'}
+          </Button>
+        </div>
+      </form>
+    </Page>
   );
 };
 

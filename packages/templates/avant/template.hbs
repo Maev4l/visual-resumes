@@ -1,15 +1,16 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="no-photo">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>{{title}}</title>
     <!-- CSS_PLACEHOLDER -->
     <script>
+      // Photo hidden by default (class="no-photo" on <html>). `?picture=true` reveals it.
       (() => {
         try {
           const p = new URLSearchParams(location.search);
-          if (p.get('picture') === 'false') document.documentElement.classList.add('no-photo');
+          if (p.get('picture') === 'true') document.documentElement.classList.remove('no-photo');
         } catch (_) {}
       })();
     </script>
@@ -20,7 +21,7 @@
         {{#each sections}}
           {{#ifEquals type "contact"}}
             <div class="personal-data">
-              {{#if ../_photoSrc}}{{#if _meta.supportsPhoto}}
+              {{#if ../_photoSrc}}{{#if ../_meta.supportsPhoto}}
                 <div class="photo-wrap"><img class="photo" src="{{../_photoSrc}}" alt="" /></div>
               {{/if}}{{/if}}
               <div class="full-name">{{data.name}}</div>
@@ -28,7 +29,7 @@
               <div class="coordinates">
                 {{#if data.location}}<div class="coord-row"><span class="label">Location</span><span>{{data.location}}</span></div>{{/if}}
                 {{#if data.email}}<div class="coord-row"><span class="label">Email</span><span>{{data.email}}</span></div>{{/if}}
-                {{#if data.phone}}<div class="coord-row"><span class="label">Phone</span><span>{{data.phone}}</span></div>{{/if}}
+                {{#if data.phone}}<div class="coord-row"><span class="label">Phone</span><span>{{formatPhone data.phone}}</span></div>{{/if}}
                 {{#each data.links}}<div class="coord-row"><span class="label">{{label}}</span><a href="{{url}}">{{url}}</a></div>{{/each}}
               </div>
             </div>
@@ -66,7 +67,7 @@
                 <h2 class="side-heading"><span>{{sectionTitle this}}</span><span class="rule"></span></h2>
                 {{#each data}}
                   <article class="edu-item">
-                    <div class="edu-date">{{formatDate startDate}} – {{formatDate endDate}}</div>
+                    <div class="edu-date">{{formatDate startDate "MMMM YYYY"}}{{#if endDate}} – {{formatDate endDate "MMMM YYYY"}}{{/if}}</div>
                     <div class="edu-degree">{{degree}}{{#if field}}, {{field}}{{/if}}</div>
                     <div class="edu-institution">{{institution}}</div>
                     {{#if notes}}<p class="edu-notes">{{{markdownInline notes}}}</p>{{/if}}
@@ -95,12 +96,12 @@
               {{#each data}}
                 {{#if pageBreakBefore}}<div class="page-break"></div>{{/if}}
                 <article class="entry">
-                  <div class="dates">{{formatDate startDate}} – {{#if current}}Present{{else}}{{formatDate endDate}}{{/if}}</div>
+                  <div class="dates">{{formatDate startDate "MMMM YYYY"}} – {{#if current}}Present{{else}}{{formatDate endDate "MMMM YYYY"}}{{/if}}</div>
                   <div class="details">
                     <div class="role">{{role}}</div>
                     <div class="company">{{company}}{{#if location}} · <span class="location">{{location}}</span>{{/if}}</div>
-                    {{#if bullets.length}}
-                      <ul class="bullets">{{#each bullets}}<li>{{{markdownInline this}}}</li>{{/each}}</ul>
+                    {{#if body}}
+                      <div class="bullets">{{{markdown body}}}</div>
                     {{/if}}
                   </div>
                 </article>

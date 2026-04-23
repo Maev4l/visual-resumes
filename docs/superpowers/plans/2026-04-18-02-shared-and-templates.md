@@ -242,10 +242,10 @@ git commit -m "feat(functions): package.json + eslint baseline (shared-lib deps)
         "company":   { "type": "string" },
         "role":      { "type": "string" },
         "location":  { "type": "string" },
-        "startDate": { "type": "string", "format": "date" },
-        "endDate":   { "type": "string", "format": "date" },
+        "startDate": { "type": "string", "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?$" },
+        "endDate":   { "type": "string", "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?$" },
         "current":   { "type": "boolean" },
-        "bullets":   { "type": "array", "items": { "type": "string" } }
+        "body":      { "type": "string" }
       }
     },
     "educationEntry": {
@@ -255,15 +255,15 @@ git commit -m "feat(functions): package.json + eslint baseline (shared-lib deps)
         "institution": { "type": "string" },
         "degree":      { "type": "string" },
         "field":       { "type": "string" },
-        "startDate":   { "type": "string", "format": "date" },
-        "endDate":     { "type": "string", "format": "date" },
+        "startDate":   { "type": "string", "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?$" },
+        "endDate":     { "type": "string", "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?$" },
         "notes":       { "type": "string" }
       }
     },
     "skillGroup":       { "type": "object", "required": ["items"], "properties": { "group": { "type": "string" }, "items": { "type": "array", "items": { "type": "string" } } } },
     "projectEntry":     { "type": "object", "required": ["name", "description"], "properties": { "name": { "type": "string" }, "description": { "type": "string" }, "link": { "type": "string" }, "tech": { "type": "array", "items": { "type": "string" } }, "bullets": { "type": "array", "items": { "type": "string" } } } },
     "languageEntry":    { "type": "object", "required": ["language", "proficiency"], "properties": { "language": { "type": "string" }, "proficiency": { "type": "string" } } },
-    "certificationEntry": { "type": "object", "required": ["name", "issuer", "date"], "properties": { "name": { "type": "string" }, "issuer": { "type": "string" }, "date": { "type": "string", "format": "date" }, "link": { "type": "string" } } }
+    "certificationEntry": { "type": "object", "required": ["name", "issuer", "date"], "properties": { "name": { "type": "string" }, "issuer": { "type": "string" }, "date": { "type": "string", "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?$" }, "link": { "type": "string" } } }
   }
 }
 ```
@@ -516,8 +516,8 @@ const templateSource = `<!doctype html>
       {{#each data}}
         <div class="entry">
           <h3>{{role}} — {{company}}</h3>
-          <span class="dates">{{formatDate startDate}} – {{#if current}}Present{{else}}{{formatDate endDate}}{{/if}}</span>
-          {{#each bullets}}<div class="bullet">{{{markdownInline this}}}</div>{{/each}}
+          <span class="dates">{{formatDate startDate "MMMM YYYY"}} – {{#if current}}Present{{else}}{{formatDate endDate "MMMM YYYY"}}{{/if}}</span>
+          {{#if body}}<div class="bullets">{{{markdown body}}}</div>{{/if}}
         </div>
       {{/each}}
     {{/ifEquals}}
@@ -542,8 +542,8 @@ const fixture = {
       type: 'experience',
       customTitle: 'Work History',
       data: [
-        { company: 'Acme', role: 'Engineer', startDate: '2022-01-01', endDate: '2024-06-01', current: false, bullets: ['Shipped `foo`.'] },
-        { company: 'Beta', role: 'Lead',     startDate: '2024-06-01', current: true, bullets: ['Own **auth**.'] },
+        { company: 'Acme', role: 'Engineer', startDate: '2022-01-01', endDate: '2024-06-01', current: false, body: '- Shipped `foo`.' },
+        { company: 'Beta', role: 'Lead',     startDate: '2024-06-01', current: true, body: '- Own **auth**.' },
       ],
     },
   ],
@@ -613,8 +613,25 @@ const CSS_MARKER = '<!-- CSS_PLACEHOLDER -->';
 const registerHelpers = (hbs) => {
   hbs.registerHelper('markdown', (text) => new hbs.SafeString(renderMarkdown(text)));
   hbs.registerHelper('markdownInline', (text) => new hbs.SafeString(renderMarkdownInline(text)));
+  // Formats a phone number for display. French numbers (+33 followed by 9 digits) get
+  // the canonical "+33 X YY YY YY YY" grouping. Everything else passes through unchanged
+  // so authors can hand-format numbers from other countries however they like.
+  hbs.registerHelper('formatPhone', (raw) => {
+    if (!raw) return '';
+    const compact = String(raw).replace(/\s+/g, '');
+    const m = /^\+33(\d{9})$/.exec(compact);
+    if (m) {
+      const d = m[1];
+      return `+33 ${d[0]} ${d.slice(1, 3)} ${d.slice(3, 5)} ${d.slice(5, 7)} ${d.slice(7, 9)}`;
+    }
+    return raw;
+  });
   hbs.registerHelper('formatDate', (iso, fmt) => {
     if (!iso) return '';
+    // Year-only input (`2024`) renders as just the year regardless of the caller's
+    // requested format. Authors who only know the year shouldn't be silently promoted
+    // to "January 2024".
+    if (/^\d{4}$/.test(iso)) return iso;
     return dayjs(iso).format(typeof fmt === 'string' ? fmt : 'MMM YYYY');
   });
   hbs.registerHelper('sectionTitle', (section) => sectionTitle(section));
@@ -623,11 +640,20 @@ const registerHelpers = (hbs) => {
   });
 };
 
-const prepareModel = (resume) => ({
-  ...resume,
-  paperSize: resume.paperSize ?? 'A4',
-  sections: resume.sections ?? [],
-});
+// Contact is the resume's masthead — always hoist it to index 0 so templates don't need
+// to know or care where the author placed it in the editor. Any other ordering stands.
+const prepareModel = (resume) => {
+  const sections = resume.sections ?? [];
+  const contactIdx = sections.findIndex((s) => s.type === 'contact');
+  const ordered = contactIdx > 0
+    ? [sections[contactIdx], ...sections.slice(0, contactIdx), ...sections.slice(contactIdx + 1)]
+    : sections;
+  return {
+    ...resume,
+    paperSize: resume.paperSize ?? 'A4',
+    sections: ordered,
+  };
+};
 
 const inlineCss = (html, style) => html.replace(CSS_MARKER, `<style>${style}</style>`);
 
@@ -842,14 +868,12 @@ git commit -m "feat(shared): Node-only disk loader for templates"
                 <header>
                   <h3 class="role-company">{{role}} — {{company}}</h3>
                   <span class="dates">
-                    {{formatDate startDate}} – {{#if current}}Present{{else}}{{formatDate endDate}}{{/if}}
+                    {{formatDate startDate "MMMM YYYY"}} – {{#if current}}Present{{else}}{{formatDate endDate "MMMM YYYY"}}{{/if}}
                   </span>
                   {{#if location}}<span class="location">{{location}}</span>{{/if}}
                 </header>
-                {{#if bullets.length}}
-                  <ul class="bullets">
-                    {{#each bullets}}<li>{{{markdownInline this}}}</li>{{/each}}
-                  </ul>
+                {{#if body}}
+                  <div class="bullets">{{{markdown body}}}</div>
                 {{/if}}
               </article>
             {{/each}}
@@ -863,7 +887,7 @@ git commit -m "feat(shared): Node-only disk loader for templates"
               <article class="entry">
                 <h3 class="institution">{{institution}}</h3>
                 <div class="degree">{{degree}}{{#if field}}, {{field}}{{/if}}</div>
-                <span class="dates">{{formatDate startDate}} – {{formatDate endDate}}</span>
+                <span class="dates">{{formatDate startDate "MMMM YYYY"}}{{#if endDate}} – {{formatDate endDate "MMMM YYYY"}}{{/if}}</span>
                 {{#if notes}}<p class="notes">{{{markdownInline notes}}}</p>{{/if}}
               </article>
             {{/each}}
@@ -1053,11 +1077,11 @@ git commit -m "feat(templates): monaco (single-column classic)"
                 <article class="entry">
                   <header>
                     <h3>{{role}} <span class="at">@ {{company}}</span></h3>
-                    <span class="dates">{{formatDate startDate}} – {{#if current}}Present{{else}}{{formatDate endDate}}{{/if}}</span>
+                    <span class="dates">{{formatDate startDate "MMMM YYYY"}} – {{#if current}}Present{{else}}{{formatDate endDate "MMMM YYYY"}}{{/if}}</span>
                     {{#if location}}<span class="location">{{location}}</span>{{/if}}
                   </header>
-                  {{#if bullets.length}}
-                    <ul class="bullets">{{#each bullets}}<li>{{{markdownInline this}}}</li>{{/each}}</ul>
+                  {{#if body}}
+                    <div class="bullets">{{{markdown body}}}</div>
                   {{/if}}
                 </article>
               {{/each}}
@@ -1071,7 +1095,7 @@ git commit -m "feat(templates): monaco (single-column classic)"
                 <article class="entry">
                   <h3>{{degree}}{{#if field}}, {{field}}{{/if}}</h3>
                   <span class="institution">{{institution}}</span>
-                  <span class="dates">{{formatDate startDate}} – {{formatDate endDate}}</span>
+                  <span class="dates">{{formatDate startDate "MMMM YYYY"}}{{#if endDate}} – {{formatDate endDate "MMMM YYYY"}}{{/if}}</span>
                   {{#if notes}}<p class="notes">{{{markdownInline notes}}}</p>{{/if}}
                 </article>
               {{/each}}
@@ -1210,8 +1234,8 @@ const fixture = {
     {
       id: 's3', type: 'experience',
       data: [
-        { company: 'Acme', role: 'Staff Eng', startDate: '2022-01-01', endDate: '2024-06-01', current: false, bullets: ['Shipped the **foo** platform.', 'Scaled `bar` to 1M rps.'], location: 'Remote' },
-        { company: 'Beta', role: 'Lead',      startDate: '2024-06-01', current: true,  bullets: ['Own auth.'] },
+        { company: 'Acme', role: 'Staff Eng', startDate: '2022-01-01', endDate: '2024-06-01', current: false, body: '- Shipped the **foo** platform.\n- Scaled `bar` to 1M rps.', location: 'Remote' },
+        { company: 'Beta', role: 'Lead',      startDate: '2024-06-01', current: true,  body: '- Own auth.' },
       ],
     },
     {

@@ -41,10 +41,14 @@ export const htmlToPdf = async (html, format) => {
   const page = await browser.newPage();
   try {
     await page.setContent(html, { waitUntil: 'networkidle0' });
+    // `preferCSSPageSize: true` lets each template's @page rule dictate its own
+    // margins. Monaco sets `@page { margin: 14mm }` for traditional print margins;
+    // modern + avant set `@page { margin: 0 }` so their full-bleed horizontal bars
+    // reach the page edges. A hardcoded puppeteer `margin` would override all of that.
     return await page.pdf({
       format,
       printBackground: true,
-      margin: { top: '12mm', right: '12mm', bottom: '12mm', left: '12mm' },
+      preferCSSPageSize: true,
     });
   } finally {
     await page.close();

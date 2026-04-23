@@ -1,32 +1,38 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="no-photo">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>{{title}}</title>
     <!-- CSS_PLACEHOLDER -->
     <script>
+      // Photo hidden by default (class="no-photo" on <html>). `?picture=true` reveals it.
       (() => {
         try {
           const p = new URLSearchParams(location.search);
-          if (p.get('picture') === 'false') document.documentElement.classList.add('no-photo');
+          if (p.get('picture') === 'true') document.documentElement.classList.remove('no-photo');
         } catch (_) {}
       })();
     </script>
   </head>
   <body class="tpl-modern paper-{{paperSize}}">
     <main class="sheet">
-      <article class="main-column">
-        {{#each sections}}
-          {{#ifEquals type "contact"}}
-            <header class="masthead">
-              <div class="headline">{{#if data.headline}}{{data.headline}}{{/if}}</div>
-              <div class="triangle" aria-hidden="true"></div>
-              <div class="name-bar">{{data.name}}</div>
-            </header>
-          {{/ifEquals}}
-        {{/each}}
+      {{! Rows 1 + 2 of the grid: headline (red text column + red sidebar spacer) and
+          name (blue column + blue sidebar spacer). CSS Grid auto-sizes each row to the
+          tallest cell, so the sidebar spacers inherit the headline / name-bar height. }}
+      {{#each sections}}
+        {{#ifEquals type "contact"}}
+          <div class="headline">{{#if data.headline}}{{data.headline}}{{/if}}</div>
+          <div class="sidebar-spacer"></div>
+          <div class="name-row">
+            <div class="triangle" aria-hidden="true"></div>
+            <div class="name-bar">{{data.name}}</div>
+          </div>
+          <div class="sidebar-subspacer"></div>
+        {{/ifEquals}}
+      {{/each}}
 
+      <article class="main-column">
         {{#each sections}}
           {{#if pageBreakBefore}}<div class="page-break"></div>{{/if}}
 
@@ -43,12 +49,12 @@
               {{#each data}}
                 {{#if pageBreakBefore}}<div class="page-break"></div>{{/if}}
                 <article class="entry">
-                  <div class="dates">{{formatDate startDate}} – {{#if current}}Present{{else}}{{formatDate endDate}}{{/if}}</div>
+                  <div class="dates">{{formatDate startDate "MMMM YYYY"}} – {{#if current}}Present{{else}}{{formatDate endDate "MMMM YYYY"}}{{/if}}</div>
                   <div class="details">
                     <div class="role">{{role}}</div>
                     <div class="company">{{company}}{{#if location}} · <span class="location">{{location}}</span>{{/if}}</div>
-                    {{#if bullets.length}}
-                      <ul class="bullets">{{#each bullets}}<li>{{{markdownInline this}}}</li>{{/each}}</ul>
+                    {{#if body}}
+                      <div class="bullets">{{{markdown body}}}</div>
                     {{/if}}
                   </div>
                 </article>
@@ -56,21 +62,7 @@
             </section>
           {{/ifEquals}}
 
-          {{#ifEquals type "education"}}
-            <section class="section education">
-              <h2>{{sectionTitle this}}</h2>
-              {{#each data}}
-                <article class="entry">
-                  <div class="dates">{{formatDate startDate}} – {{formatDate endDate}}</div>
-                  <div class="details">
-                    <div class="degree">{{degree}}{{#if field}}, {{field}}{{/if}}</div>
-                    <div class="institution">{{institution}}</div>
-                    {{#if notes}}<p class="notes">{{{markdownInline notes}}}</p>{{/if}}
-                  </div>
-                </article>
-              {{/each}}
-            </section>
-          {{/ifEquals}}
+          {{! education lives in the sidebar for the modern template — see the sidebar loop below. }}
 
           {{#ifEquals type "projects"}}
             <section class="section projects">
@@ -100,18 +92,16 @@
       </article>
 
       <aside class="sidebar">
-        <div class="sidebar-spacer"></div>
-        <div class="sidebar-subspacer"></div>
         <div class="sidebar-content">
           {{#each sections}}
             {{#ifEquals type "contact"}}
               <div class="coordinates">
-                {{#if ../_photoSrc}}{{#if _meta.supportsPhoto}}
+                {{#if ../_photoSrc}}{{#if ../_meta.supportsPhoto}}
                   <img class="photo" src="{{../_photoSrc}}" alt="" />
                 {{/if}}{{/if}}
                 {{#if data.location}}<div class="coord-row"><span class="label">Location</span><span>{{data.location}}</span></div>{{/if}}
                 {{#if data.email}}<div class="coord-row"><span class="label">Email</span><span>{{data.email}}</span></div>{{/if}}
-                {{#if data.phone}}<div class="coord-row"><span class="label">Phone</span><span>{{data.phone}}</span></div>{{/if}}
+                {{#if data.phone}}<div class="coord-row"><span class="label">Phone</span><span>{{formatPhone data.phone}}</span></div>{{/if}}
                 {{#each data.links}}<div class="coord-row"><span class="label">{{label}}</span><a href="{{url}}">{{url}}</a></div>{{/each}}
               </div>
             {{/ifEquals}}
@@ -147,6 +137,25 @@
                       <div class="lang-name">{{language}}</div>
                       <div>{{proficiency}}</div>
                     </div>
+                  {{/each}}
+                </div>
+              </section>
+            {{/ifEquals}}
+
+            {{#ifEquals type "education"}}
+              <section class="side-section education">
+                <div class="side-title-wrap">
+                  <h2 class="side-title">{{sectionTitle this}}</h2>
+                  <div class="side-triangle" aria-hidden="true"></div>
+                </div>
+                <div class="side-body">
+                  {{#each data}}
+                    <article class="edu-entry">
+                      <div class="degree">{{degree}}{{#if field}}, {{field}}{{/if}}</div>
+                      <div class="institution">{{institution}}</div>
+                      <div class="dates">{{formatDate startDate "MMMM YYYY"}}{{#if endDate}} – {{formatDate endDate "MMMM YYYY"}}{{/if}}</div>
+                      {{#if notes}}<p class="notes">{{{markdownInline notes}}}</p>{{/if}}
+                    </article>
                   {{/each}}
                 </div>
               </section>

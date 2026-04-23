@@ -49,7 +49,9 @@ resource "aws_s3_bucket_cors_configuration" "storage" {
 
   cors_rule {
     allowed_methods = ["PUT"]
-    allowed_origins = ["https://${var.domain_name}"]
+    # Editor dev server runs at localhost:5178 (see packages/editor/vite.config.js — strict
+    # port pinned to match the Cognito callback URL). Both prod + local dev are whitelisted.
+    allowed_origins = ["https://${var.domain_name}", "http://localhost:5178"]
     allowed_headers = ["*"]
     expose_headers  = ["ETag"]
     max_age_seconds = 300

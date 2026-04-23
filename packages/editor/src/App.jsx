@@ -9,18 +9,20 @@ import Login from '@/pages/Login';
 import Dashboard from '@/pages/Dashboard';
 import New from '@/pages/New';
 import Edit from '@/pages/Edit';
+import Preview from '@/pages/Preview';
 import Pending from '@/pages/Pending';
 import NotFound from '@/pages/NotFound';
 
 const App = () => (
   <AuthProvider>
     <Routes>
-      <Route path="/login"    element={<Login />} />
-      <Route path="/pending"  element={<Pending />} />
-      <Route path="/"         element={<RequireAuth><Dashboard /></RequireAuth>} />
-      <Route path="/new"      element={<RequireAuth><New /></RequireAuth>} />
-      <Route path="/edit/:id" element={<RequireAuth><Edit /></RequireAuth>} />
-      <Route path="*"         element={<NotFound />} />
+      <Route path="/login"       element={<Login />} />
+      <Route path="/pending"     element={<Pending />} />
+      <Route path="/"            element={<RequireAuth><Dashboard /></RequireAuth>} />
+      <Route path="/new"         element={<RequireAuth><New /></RequireAuth>} />
+      <Route path="/edit/:id"    element={<RequireAuth><Edit /></RequireAuth>} />
+      <Route path="/preview/:id" element={<RequireAuth><Preview /></RequireAuth>} />
+      <Route path="*"            element={<NotFound />} />
     </Routes>
   </AuthProvider>
 );

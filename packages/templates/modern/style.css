@@ -3,8 +3,12 @@
    the RIGHT, mirroring the original MainContainer (LeftPanel + SideBar). The TriangleDown
    SVG decoration from the old JSS is reproduced with pure CSS borders. */
 
+@import url("https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@300;400;600;700&display=swap");
+
 :root {
-  --body-font: "Source Sans Pro", "Segoe UI", system-ui, sans-serif;
+  /* "Source Sans 3" is the Google Fonts successor to the retired "Source Sans Pro";
+     keep the old name in the stack so any browser/OS that has Pro locally still picks it up. */
+  --body-font: "Source Sans 3", "Source Sans Pro", "Segoe UI", system-ui, sans-serif;
   --red: #EA7777;
   --light-blue: #F2F7FB;
   --gray: #E5EAEf;
@@ -18,15 +22,34 @@
 
 html, body { margin: 0; padding: 0; color: var(--text); font-family: var(--body-font); font-weight: 300; font-size: 11pt; line-height: 1.45; }
 
-/* Grid sheet: main 65% | sidebar 35%. Fills the viewport in the browser — the @page rule
-   at the bottom constrains print output to A4 regardless. This matches the legacy layout
-   (no max-width + margin: 0), avoiding wasted whitespace when the user views the HTML. */
-.sheet { display: grid; grid-template-columns: 65% 35%; gap: 0; width: 100%; min-height: 100vh; }
+/* Grid sheet: 2 columns × 3 rows. Rows 1 + 2 are the red/blue masthead stripes and their
+   sidebar counterparts — putting them in the SAME grid rows means both cells in each row
+   auto-size to the tallest sibling, so the sidebar spacers vertically match the headline
+   / name-bar heights without any hand-tuned formulas. Row 3 = content (65%/35%). */
+.sheet {
+  display: grid;
+  grid-template-columns: 65% 35%;
+  grid-template-rows: auto auto 1fr;
+  gap: 0;
+  width: 100%;
+  min-height: 100vh;
+}
+
+.sheet > .headline { grid-row: 1; grid-column: 1; }
+.sheet > .sidebar-spacer { grid-row: 1; grid-column: 2; background-color: var(--red); }
+.sheet > .name-row { grid-row: 2; grid-column: 1; position: relative; }
+.sheet > .sidebar-subspacer { grid-row: 2; grid-column: 2; background-color: var(--light-blue); }
+.sheet > .main-column { grid-row: 3; grid-column: 1; }
+.sheet > .sidebar { grid-row: 3; grid-column: 2; }
 
 /* --- LEFT column: masthead + content --- */
-.main-column { display: flex; flex-direction: column; }
+/* `gap` (not per-section margins) because flex-column items don't collapse vertical
+   margins — top+bottom margins would stack to 3em between sections instead of 1.5em. */
+/* `padding-top` separates the first content section from the blue name-bar row above.
+   Without it Experience butts against the name-bar with only the section h2 margin. */
+.main-column { display: flex; flex-direction: column; gap: 1.5em; padding-top: 2.5em; }
 
-.masthead .headline {
+.headline {
   font-weight: 300;
   font-size: 350%;
   color: var(--red);
@@ -34,8 +57,7 @@ html, body { margin: 0; padding: 0; color: var(--text); font-family: var(--body-
   min-height: 1.2em;
   line-height: 1.1;
 }
-/* `position: relative` establishes the containing block for the ::before notch below. */
-.masthead .name-bar {
+.name-row .name-bar {
   position: relative;
   font-weight: 300;
   font-size: 175%;
@@ -48,7 +70,7 @@ html, body { margin: 0; padding: 0; color: var(--text); font-family: var(--body-
    notch is always at the red/blue seam regardless of header height. The <div class="triangle">
    emitted by the template is hidden below — redundant after this change but kept so older
    rendered HTML (if any) doesn't break. */
-.masthead .name-bar::before {
+.name-row .name-bar::before {
   content: '';
   position: absolute;
   top: 0;
@@ -61,9 +83,9 @@ html, body { margin: 0; padding: 0; color: var(--text); font-family: var(--body-
   filter: drop-shadow(rgba(0, 0, 0, 0.1) 0 3px 2px);
   z-index: 1;
 }
-.masthead .triangle { display: none; }
+.name-row .triangle { display: none; }
 
-.main-column .section { margin: 1.5em 20px; break-inside: avoid; }
+.main-column .section { margin: 0 20px; break-inside: avoid; }
 .main-column .section h2 {
   font-size: 150%;
   font-weight: 700;
@@ -83,8 +105,13 @@ html, body { margin: 0; padding: 0; color: var(--text); font-family: var(--body-
 .entry .institution { color: var(--dark-gray); }
 .entry .notes { margin: 0.25em 0 0; color: var(--dark-gray); }
 
-.bullets { margin: 0.3em 0 0; padding-left: 1.25em; }
+/* `.bullets` is a wrapper <div> around markdown-rendered body content — paragraphs,
+   ordered/unordered lists, and nested lists. Target the block descendants explicitly. */
+.bullets { margin: 0.3em 0 0; }
+.bullets p { margin: 0.3em 0; }
+.bullets ul { margin: 0.3em 0; padding-left: 1.25em; }
 .bullets li { margin: 0.15em 0; break-inside: avoid; }
+.bullets ul ul { margin: 0.15em 0; padding-left: 1.1em; }
 
 .project-item { display: block; }
 .project-item .project-name { font-weight: 700; margin-bottom: 4px; }
@@ -94,11 +121,13 @@ html, body { margin: 0; padding: 0; color: var(--text); font-family: var(--body-
 .cert-list { list-style: disc; padding-left: 1.25em; margin: 0; }
 .cert-list li { margin: 0.2em 0; }
 
-/* --- RIGHT sidebar: matches the legacy SideBar (coral spacer + blue spacer + blue bg) --- */
-.sidebar { background-color: var(--light-blue); display: flex; flex-direction: column; }
-.sidebar-spacer { background-color: var(--red); min-height: calc(350% / 100 * 1em + 40px); padding: 20px; }
-.sidebar-subspacer { background-color: var(--light-blue); min-height: calc(175% / 100 * 1em + 40px); padding: 20px; }
-.sidebar-content { flex: 1; padding: 0 10px 20px; }
+/* --- RIGHT sidebar (row 3 content column only — the red/blue spacers above sit in
+       their own grid rows so they auto-align to the headline / name-bar heights). --- */
+.sidebar { background-color: var(--light-blue); }
+/* No horizontal padding on the content wrapper — the gray section-title bars must
+   extend to the sidebar edges. The individual blocks (`.coordinates`, `.side-body`)
+   bring their own inner padding so their text content stays inset from the edge. */
+.sidebar-content { flex: 1; padding: 0 0 20px; }
 
 /* Coordinates block at the top of the sidebar — photo + two-column key/value rows. */
 .coordinates { padding: 10px; margin-bottom: 1.5em; }
@@ -137,6 +166,14 @@ html, body { margin: 0; padding: 0; color: var(--text); font-family: var(--body-
 
 .lang-row { display: flex; margin: 0.3em 0; font-size: 95%; }
 .lang-row .lang-name { font-weight: 400; min-width: 100px; }
+
+/* Sidebar education: compact stacked layout (no wide dates column — the sidebar
+   is only 35% wide so the two-column experience pattern doesn't fit). */
+.sidebar .edu-entry { margin: 0.5em 0 1em; break-inside: avoid; font-size: 95%; }
+.sidebar .edu-entry .degree { font-weight: 600; line-height: 1.3; }
+.sidebar .edu-entry .institution { color: var(--dark-gray); }
+.sidebar .edu-entry .dates { color: var(--muted); font-size: 90%; margin-top: 2px; }
+.sidebar .edu-entry .notes { margin: 0.25em 0 0; color: var(--dark-gray); font-size: 90%; }
 
 a { color: inherit; text-decoration: underline; }
 .page-break { break-before: always; }

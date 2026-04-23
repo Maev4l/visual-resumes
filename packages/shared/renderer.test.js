@@ -71,6 +71,20 @@ describe('renderer (isomorphic)', () => {
     assert.match(html, /Jun 2024 – Present/);
   });
 
+  it('renders year-only input as just the year (no "January YYYY")', () => {
+    const render = createRenderer({ templateSource, style: css, meta: META });
+    const yearOnly = {
+      ...fixture,
+      sections: [{
+        id: 's1', type: 'experience',
+        data: [{ company: 'Gamma', role: 'Staff', startDate: '2019', endDate: '2021', current: false }],
+      }],
+    };
+    const html = render(yearOnly);
+    assert.match(html, /2019 – 2021/);
+    assert.doesNotMatch(html, /January 2019|Jan 2019/);
+  });
+
   it('renders bullet markdown inline (no <p> wrapping)', () => {
     const render = createRenderer({ templateSource, style: css, meta: META });
     const html = render(fixture);
@@ -85,9 +99,36 @@ describe('renderer (isomorphic)', () => {
     assert.doesNotMatch(html, /CSS_PLACEHOLDER/);
   });
 
+  it('formats French phone numbers as "+33 X YY YY YY YY"', () => {
+    const tpl = `{{formatPhone p}}`;
+    const render = createRenderer({ templateSource: tpl, style: '', meta: META });
+    assert.equal(render({ p: '+33123456789' }), '+33 1 23 45 67 89');
+    assert.equal(render({ p: '+33 123456789' }), '+33 1 23 45 67 89');
+    // Non-FR / unrecognised inputs pass through untouched.
+    assert.equal(render({ p: '+1 555 0100' }), '+1 555 0100');
+    assert.equal(render({ p: '' }), '');
+  });
+
   it('tolerates missing sections array', () => {
     const render = createRenderer({ templateSource, style: css, meta: META });
     const html = render({ ...fixture, sections: undefined });
     assert.match(html, /<h1>EN — Developer<\/h1>/);
+  });
+
+  it('hoists contact section to the top regardless of its placement in the array', () => {
+    // The "Contact: …" template probe below is inlined into the test template so the
+    // assertion targets a deterministic substring shift rather than full HTML ordering.
+    const probingSource = `{{#each sections}}<b>{{type}}</b>|{{/each}}`;
+    const render = createRenderer({ templateSource: probingSource, style: '', meta: META });
+    const withContactLate = {
+      ...fixture,
+      sections: [
+        { id: 's1', type: 'summary', data: { text: '' } },
+        { id: 's2', type: 'skills',  data: [] },
+        { id: 's3', type: 'contact', data: { name: 'Ada', email: '', phone: '', location: '', links: [] } },
+      ],
+    };
+    const html = render(withContactLate);
+    assert.match(html, /<b>contact<\/b>\|<b>summary<\/b>\|<b>skills<\/b>\|/);
   });
 });

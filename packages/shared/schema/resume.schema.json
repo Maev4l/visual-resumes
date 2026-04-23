@@ -64,10 +64,10 @@
         "company":   { "type": "string" },
         "role":      { "type": "string" },
         "location":  { "type": "string" },
-        "startDate": { "type": "string", "format": "date" },
-        "endDate":   { "type": "string", "format": "date" },
+        "startDate": { "type": "string", "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?$" },
+        "endDate":   { "type": "string", "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?$" },
         "current":   { "type": "boolean" },
-        "bullets":   { "type": "array", "items": { "type": "string" } }
+        "body":      { "type": "string" }
       }
     },
     "educationEntry": {
@@ -77,14 +77,14 @@
         "institution": { "type": "string" },
         "degree":      { "type": "string" },
         "field":       { "type": "string" },
-        "startDate":   { "type": "string", "format": "date" },
-        "endDate":     { "type": "string", "format": "date" },
+        "startDate":   { "type": "string", "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?$" },
+        "endDate":     { "type": "string", "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?$" },
         "notes":       { "type": "string" }
       }
     },
     "skillGroup":       { "type": "object", "required": ["items"], "properties": { "group": { "type": "string" }, "items": { "type": "array", "items": { "type": "string" } } } },
     "projectEntry":     { "type": "object", "required": ["name", "description"], "properties": { "name": { "type": "string" }, "description": { "type": "string" }, "link": { "type": "string" }, "tech": { "type": "array", "items": { "type": "string" } }, "bullets": { "type": "array", "items": { "type": "string" } } } },
     "languageEntry":    { "type": "object", "required": ["language", "proficiency"], "properties": { "language": { "type": "string" }, "proficiency": { "type": "string" } } },
-    "certificationEntry": { "type": "object", "required": ["name", "issuer", "date"], "properties": { "name": { "type": "string" }, "issuer": { "type": "string" }, "date": { "type": "string", "format": "date" }, "link": { "type": "string" } } }
+    "certificationEntry": { "type": "object", "required": ["name", "issuer", "date"], "properties": { "name": { "type": "string" }, "issuer": { "type": "string" }, "date": { "type": "string", "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?$" }, "link": { "type": "string" } } }
   }
 }

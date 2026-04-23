@@ -16,7 +16,7 @@ import { actions } from './reducer';
 const ACCEPT = 'image/jpeg,image/png,image/webp';
 const MAX_BYTES = 5 * 1024 * 1024;
 
-const PhotoUpload = ({ resumeId, state, dispatch, onUploaded }) => {
+const PhotoUpload = ({ resumeId, state, dispatch, onSaveNow, onUploaded }) => {
   const [busy, setBusy] = useState(false);
 
   const onChange = async (e) => {
@@ -28,11 +28,18 @@ const PhotoUpload = ({ resumeId, state, dispatch, onUploaded }) => {
     try {
       const { data } = await api.photoUploadUrl(resumeId);
       await uploadPhoto({ uploadUrl: data.uploadUrl, file });
+      // Update the reducer for UI purposes AND save with an explicit override —
+      // waiting on React to commit the dispatch before flushNow reads its ref would
+      // race. Pass the computed resume directly so the save is deterministic.
       dispatch(actions.setPhotoKey(data.photoKey));
+      if (onSaveNow) {
+        await onSaveNow({
+          resume: { ...state.resume, photoKey: data.photoKey },
+          etag: state.etag,
+        });
+      }
       toast.success('Photo uploaded — processing…');
-      // Short delay so the image-resizer has time to produce the WebP before we refetch
-      // (direct S3 listing would be overkill; a best-effort timeout is sufficient here).
-      if (onUploaded) setTimeout(onUploaded, 1500);
+      if (onUploaded) await onUploaded();
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -44,14 +51,18 @@ const PhotoUpload = ({ resumeId, state, dispatch, onUploaded }) => {
 
   const clear = () => dispatch(actions.setPhotoKey(null));
 
+  // Editorial wrapper: dashed rule on paper-deep tint so the upload reads as a
+  // distinct surface without the shadcn Card chrome muddying the palette.
   return (
-    <div className="grid gap-2">
+    <div className="grid gap-3 p-4 border border-dashed border-[var(--color-rule)] rounded-sm bg-[var(--color-paper-deep)]/40">
       <Label>Photo</Label>
       <Input type="file" accept={ACCEPT} onChange={onChange} disabled={busy} />
-      {busy && <span className="text-sm text-muted-foreground">Uploading…</span>}
+      {busy && <span className="font-meta text-[var(--color-ink-faint)]">Uploading…</span>}
       {state.resume.photoKey && !busy && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <code className="bg-muted px-1 rounded text-xs">{state.resume.photoKey}</code>
+        <div className="flex items-center gap-2 font-meta text-[var(--color-ink-faint)]">
+          <code className="font-mono text-xs px-1 rounded-sm bg-[var(--color-paper)] border border-[var(--color-rule-soft)]">
+            {state.resume.photoKey}
+          </code>
           <Button type="button" variant="ghost" size="sm" onClick={clear}>Remove</Button>
         </div>
       )}

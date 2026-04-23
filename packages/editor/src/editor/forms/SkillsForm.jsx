@@ -6,6 +6,20 @@ import { ArrowDown, ArrowUp, X, Plus } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import FieldHint from '@/components/editorial/FieldHint';
+import { hint } from '../hints';
+
+// Same terse H helper — only render the hint on the first entry so repeated groups
+// don't re-explain the typographic role of each field.
+const H = ({ children, hintKey, first }) => {
+  const h = first ? hint('skills', hintKey) : null;
+  return (
+    <div className="grid gap-0.5">
+      <Label>{children}</Label>
+      {h && <FieldHint as={h.as}>{h.text}</FieldHint>}
+    </div>
+  );
+};
 
 const blank = () => ({ group: '', items: [] });
 
@@ -48,7 +62,7 @@ const SkillsForm = ({ data, onChange }) => {
           </div>
 
           <div className="grid gap-1">
-            <Label>Group name</Label>
+            <H hintKey="group" first={i === 0}>Group name</H>
             <Input
               value={g.group ?? ''}
               onChange={(ev) => replaceAt(i, { group: ev.target.value })}
@@ -56,7 +70,7 @@ const SkillsForm = ({ data, onChange }) => {
             />
           </div>
           <div className="grid gap-1">
-            <Label>Items <span className="text-xs text-muted-foreground">(comma-separated)</span></Label>
+            <H hintKey="items" first={i === 0}>Items <span className="text-xs text-muted-foreground">(comma-separated)</span></H>
             <Input
               value={(g.items ?? []).join(', ')}
               onChange={(ev) => replaceAt(i, { items: parseItems(ev.target.value) })}

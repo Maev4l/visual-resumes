@@ -8,6 +8,20 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import FieldHint from '@/components/editorial/FieldHint';
+import { hint } from '../hints';
+
+// Same terse H helper — only render the hint on the first entry so the typographic
+// legend appears once per section, not under every repeated row.
+const H = ({ children, hintKey, first }) => {
+  const h = first ? hint('projects', hintKey) : null;
+  return (
+    <div className="grid gap-0.5">
+      <Label>{children}</Label>
+      {h && <FieldHint as={h.as}>{h.text}</FieldHint>}
+    </div>
+  );
+};
 
 const blank = () => ({ name: '', description: '', link: '', tech: [], bullets: [''] });
 const parseTech = (s) => s.split(',').map((x) => x.trim()).filter(Boolean);
@@ -57,16 +71,16 @@ const ProjectsForm = ({ data, onChange }) => {
 
           <div className="grid sm:grid-cols-2 gap-3">
             <div className="grid gap-1">
-              <Label>Name</Label>
+              <H hintKey="name" first={i === 0}>Name</H>
               <Input value={e.name} onChange={(ev) => replaceAt(i, { name: ev.target.value })} />
             </div>
             <div className="grid gap-1">
-              <Label>Link</Label>
+              <H hintKey="link" first={i === 0}>Link</H>
               <Input value={e.link ?? ''} onChange={(ev) => replaceAt(i, { link: ev.target.value })} />
             </div>
           </div>
           <div className="grid gap-1">
-            <Label>Description</Label>
+            <H hintKey="description" first={i === 0}>Description</H>
             <Textarea
               rows={2}
               value={e.description ?? ''}
@@ -74,7 +88,7 @@ const ProjectsForm = ({ data, onChange }) => {
             />
           </div>
           <div className="grid gap-1">
-            <Label>Tech <span className="text-xs text-muted-foreground">(comma-separated)</span></Label>
+            <H hintKey="tech" first={i === 0}>Tech <span className="text-xs text-muted-foreground">(comma-separated)</span></H>
             <Input
               value={(e.tech ?? []).join(', ')}
               onChange={(ev) => replaceAt(i, { tech: parseTech(ev.target.value) })}
@@ -85,9 +99,9 @@ const ProjectsForm = ({ data, onChange }) => {
           <Separator />
 
           <div className="grid gap-2">
-            <Label className="text-muted-foreground">
+            <H hintKey="bullets" first={i === 0}>
               Bullets <span className="text-xs">(markdown — bold/italic/code/links only)</span>
-            </Label>
+            </H>
             {(e.bullets ?? []).map((b, bi) => (
               <div key={bi} className="flex gap-2">
                 <Input value={b} onChange={(ev) => setBullet(i, bi, ev.target.value)} />

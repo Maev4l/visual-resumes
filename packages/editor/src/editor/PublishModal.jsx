@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Copy, ExternalLink } from 'lucide-react';
 
 import { api } from '@/api/client';
+import { getConfig } from '@/config';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
@@ -46,8 +47,11 @@ const PublishModal = ({ resume, open, onOpenChange, onPublished, onRevoked }) =>
     }
   };
 
-  // Published URLs live under the same host as the editor (CloudFront serves both).
-  const host = window.location.host;
+  // Published URLs always live under the production host (`publicHost` from the runtime
+  // config). Using `window.location.host` would break in dev — a localhost:5178 URL is
+  // not shareable. The editor and published artifacts both sit behind the same CloudFront
+  // in prod so the URL is the same for the reader.
+  const host = getConfig().publicHost;
   const urls = result ? {
     html: `https://${host}/resumes/${result.slug}.html`,
     pdf:  `https://${host}/resumes/${result.slug}.pdf`,
@@ -61,35 +65,55 @@ const PublishModal = ({ resume, open, onOpenChange, onPublished, onRevoked }) =>
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{result ? 'Published' : 'Publish resume'}</DialogTitle>
-          <DialogDescription>
-            {result ? 'Your resume is live.' : 'This generates the public HTML + PDF at a shareable URL.'}
+        {/* Editorial chrome: mono kicker + serif title + rule separator. Logic unchanged. */}
+        <DialogHeader className="space-y-2">
+          <span className="font-meta">
+            {result ? 'Published' : 'Ready to publish'}
+          </span>
+          <DialogTitle className="font-serif text-2xl font-normal text-[var(--color-ink)]">
+            {result ? 'Manage publication' : 'Publish this résumé'}
+          </DialogTitle>
+          <DialogDescription className="text-sm text-[var(--color-ink-faint)]">
+            {result
+              ? 'Share the URLs below, or retire the published artifacts from your shelf.'
+              : 'Generate a static HTML + PDF at an unguessable URL. Readers need no login.'}
           </DialogDescription>
         </DialogHeader>
 
+        {/* Hair rule below the header — reinforces the typeset-card feel. */}
+        <div className="h-px bg-[var(--color-rule)] my-4" aria-hidden="true" />
+
         {urls && (
-          <div className="grid gap-3">
+          <div className="grid">
             {['html', 'pdf'].map((kind) => (
-              <div key={kind} className="grid gap-1">
-                <label className="text-sm text-muted-foreground uppercase">{kind}</label>
-                <div className="flex gap-2">
-                  <Input
-                    readOnly
-                    value={urls[kind]}
-                    onFocus={(e) => e.target.select()}
-                    className="font-mono text-sm"
-                  />
-                  <Button type="button" variant="outline" size="icon" aria-label="Copy"
-                    onClick={() => copy(urls[kind])}>
-                    <Copy className="size-4" />
-                  </Button>
-                  <Button type="button" variant="outline" size="icon" aria-label="Open" asChild>
-                    <a href={urls[kind]} target="_blank" rel="noreferrer">
-                      <ExternalLink className="size-4" />
-                    </a>
-                  </Button>
-                </div>
+              // Each URL row: bordered by a soft rule (not a card), mono label + value.
+              <div
+                key={kind}
+                className="flex items-center gap-3 py-2 border-b border-[var(--color-rule-soft)] last:border-0 font-meta"
+              >
+                <label className="w-12 shrink-0 text-[var(--color-ink-faint)]">{kind}</label>
+                <Input
+                  readOnly
+                  value={urls[kind]}
+                  onFocus={(e) => e.target.select()}
+                  className="font-mono text-sm flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="font-meta"
+                  aria-label="Copy"
+                  onClick={() => copy(urls[kind])}
+                >
+                  <Copy className="size-4" />
+                  Copy
+                </Button>
+                <Button type="button" variant="ghost" size="icon" aria-label="Open" asChild>
+                  <a href={urls[kind]} target="_blank" rel="noreferrer">
+                    <ExternalLink className="size-4" />
+                  </a>
+                </Button>
               </div>
             ))}
           </div>
@@ -97,12 +121,23 @@ const PublishModal = ({ resume, open, onOpenChange, onPublished, onRevoked }) =>
 
         <DialogFooter>
           {!result && (
-            <Button type="button" onClick={doPublish} disabled={busy}>
+            <Button
+              type="button"
+              onClick={doPublish}
+              disabled={busy}
+              className="rounded-sm bg-[var(--color-ink)] hover:bg-[var(--color-ink-soft)] text-[var(--color-paper)]"
+            >
               {busy ? 'Publishing…' : 'Publish'}
             </Button>
           )}
           {result && (
-            <Button type="button" variant="destructive" onClick={doUnpublish} disabled={busy}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={doUnpublish}
+              disabled={busy}
+              className="text-[var(--color-oxblood)]"
+            >
               {busy ? 'Unpublishing…' : 'Unpublish'}
             </Button>
           )}

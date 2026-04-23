@@ -25,8 +25,8 @@ const fixture = {
     {
       id: 's3', type: 'experience',
       data: [
-        { company: 'Acme', role: 'Staff Eng', startDate: '2022-01-01', endDate: '2024-06-01', current: false, bullets: ['Shipped the **foo** platform.', 'Scaled `bar` to 1M rps.'], location: 'Remote' },
-        { company: 'Beta', role: 'Lead',      startDate: '2024-06-01', current: true,  bullets: ['Own auth.'] },
+        { company: 'Acme', role: 'Staff Eng', startDate: '2022-01-01', endDate: '2024-06-01', current: false, body: '- Shipped the **foo** platform.\n- Scaled `bar` to 1M rps.', location: 'Remote' },
+        { company: 'Beta', role: 'Lead',      startDate: '2024-06-01', current: true,  body: '- Own auth.' },
       ],
     },
     {
@@ -69,9 +69,9 @@ for (const templateId of ['monaco', 'modern', 'avant']) {
       assert.match(html, /<code>distributed systems<\/code>/);
     });
 
-    it('renders experience dates with dayjs defaults', () => {
-      assert.match(html, /Jan 2022 – Jun 2024/);
-      assert.match(html, /Jun 2024 – Present/);
+    it('renders experience dates with full month names', () => {
+      assert.match(html, /January 2022 – June 2024/);
+      assert.match(html, /June 2024 – Present/);
     });
 
     it('renders skills groups', () => {

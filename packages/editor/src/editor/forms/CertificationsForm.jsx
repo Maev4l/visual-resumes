@@ -1,10 +1,22 @@
 // Certifications section form — list of `{ name, issuer, date, link? }` entries.
-// WHY `type="date"` on `date`: matches the schema's `format: date` constraint and avoids
-// a free-text field where users mis-format month abbreviations.
 import { ArrowDown, ArrowUp, X, Plus } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import FieldHint from '@/components/editorial/FieldHint';
+import { hint } from '../hints';
+
+// Same terse H helper — only render the hint on the first entry so the typographic
+// legend appears once per section, not under every repeated row.
+const H = ({ children, hintKey, first }) => {
+  const h = first ? hint('certifications', hintKey) : null;
+  return (
+    <div className="grid gap-0.5">
+      <Label>{children}</Label>
+      {h && <FieldHint as={h.as}>{h.text}</FieldHint>}
+    </div>
+  );
+};
 
 const blank = () => ({ name: '', issuer: '', date: '', link: '' });
 
@@ -45,19 +57,20 @@ const CertificationsForm = ({ data, onChange }) => {
 
           <div className="grid sm:grid-cols-2 gap-3">
             <div className="grid gap-1">
-              <Label>Name</Label>
+              <H hintKey="name" first={i === 0}>Name</H>
               <Input value={e.name} onChange={(ev) => replaceAt(i, { name: ev.target.value })} />
             </div>
             <div className="grid gap-1">
-              <Label>Issuer</Label>
+              <H hintKey="issuer" first={i === 0}>Issuer</H>
               <Input value={e.issuer} onChange={(ev) => replaceAt(i, { issuer: ev.target.value })} />
             </div>
             <div className="grid gap-1">
-              <Label>Date</Label>
-              <Input type="date" value={e.date} onChange={(ev) => replaceAt(i, { date: ev.target.value })} />
+              <H hintKey="date" first={i === 0}>Date</H>
+              <Input placeholder="YYYY-MM or YYYY" value={e.date ?? ''}
+                onChange={(ev) => replaceAt(i, { date: ev.target.value })} />
             </div>
             <div className="grid gap-1">
-              <Label>Link</Label>
+              <H hintKey="link" first={i === 0}>Link</H>
               <Input value={e.link ?? ''} onChange={(ev) => replaceAt(i, { link: ev.target.value })} />
             </div>
           </div>

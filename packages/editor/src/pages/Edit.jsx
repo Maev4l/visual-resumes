@@ -1,23 +1,29 @@
-// Main editor page — sticky header with scalar controls, section list, optional split
-// preview, and publish dialog. WHY `useReducer`: the resume state is graph-shaped
-// (sections with nested lists) so centralising every mutation in one reducer keeps the
-// Edit page declarative and makes every edit traceable to one action type.
-import { useEffect, useReducer, useState } from 'react';
+// packages/editor/src/pages/Edit.jsx
+// Main editor page. The header is a sticky editorial bar (wordmark left, title input
+// centre, controls right). Inline preview is gone: "Open preview" opens a dedicated
+// window at /preview/:id which stays synchronised via BroadcastChannel. No Save button:
+// edits autosave on a 1.5s debounce; a mono status chip in the header rail shows
+// "Unsaved" → "Saving…" → "Saved · Ns ago" live. ⌘S (or Ctrl+S) flushes immediately.
+import { useCallback, useEffect, useReducer, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { toast } from 'sonner';
-import { ArrowLeft, Eye, EyeOff, Save, Upload } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Upload } from 'lucide-react';
 
-import { api, ApiError } from '@/api/client';
+import { api } from '@/api/client';
 import { reducer, initialState, actions } from '@/editor/reducer';
+import { useBroadcastPreview } from '@/editor/useBroadcastPreview';
+import { useAutosave } from '@/editor/useAutosave';
 import SectionList from '@/editor/SectionList';
 import PhotoUpload from '@/editor/PhotoUpload';
-import Preview from '@/editor/Preview';
 import PublishModal from '@/editor/PublishModal';
 import { TEMPLATES } from '@/templates';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import Wordmark from '@/components/editorial/Wordmark';
+import MetaChip from '@/components/editorial/MetaChip';
+import RuleLine from '@/components/editorial/RuleLine';
+import SaveStatusChip from '@/components/editorial/SaveStatusChip';
 
 const Edit = () => {
   const { id } = useParams();
@@ -25,51 +31,72 @@ const Edit = () => {
   const [photoDataUri, setPhotoDataUri] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
   const [publishing, setPublishing] = useState(false);
 
-  // `refetch` is reusable — photo upload calls it to pick up the newly-resized WebP,
-  // and the stale-etag branch of `save` calls it to resync with the server.
-  const refetch = () => api.getResume(id).then(({ data }) => {
-    dispatch(actions.hydrate({ resume: data.resume, etag: data.etag }));
-    setPhotoDataUri(data.photoDataUri ?? null);
-    setLoaded(true);
+  // Publish resume state over BroadcastChannel to any /preview/:id window.
+  useBroadcastPreview({ resumeId: id, resume: state.resume, photoDataUri });
+
+  // When `waitForPhoto` is true we poll until the API returns a non-null photoDataUri.
+  // Post-upload the image-resizer Lambda needs a second or two to produce the WebP,
+  // during which the API returns `photoDataUri: null`. Without the poll the preview
+  // would show no image until the next unrelated refetch. Bounded to avoid hangs if
+  // the resizer fails — the photo just stays missing, consistent with the rest of the
+  // "best-effort" upload UX.
+  const refetch = useCallback(async ({ waitForPhoto = false } = {}) => {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const { data } = await api.getResume(id);
+      dispatch(actions.hydrate({ resume: data.resume, etag: data.etag }));
+      setPhotoDataUri(data.photoDataUri ?? null);
+      setLoaded(true);
+      if (!waitForPhoto || !data.resume.photoKey || data.photoDataUri) return;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }, [id]);
+
+  useEffect(() => { refetch().catch((err) => setError(err.message)); }, [refetch]);
+
+  const onSaved = useCallback((etag) => dispatch(actions.saved(etag)), []);
+
+  const { status: saveStatus, savedAt, flushNow } = useAutosave({
+    resumeId: id,
+    resume: state.resume,
+    etag: state.etag,
+    dirty: state.dirty,
+    onSaved,
+    onStale: refetch,
   });
 
-  useEffect(() => { refetch().catch((err) => setError(err.message)); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      const { etag } = await api.putResume(id, state.resume, state.etag);
-      dispatch(actions.saved(etag));
-      toast.success('Saved');
-    } catch (err) {
-      // 412 = someone else (or another tab) wrote first; rehydrate instead of
-      // silently overwriting their edit.
-      if (err instanceof ApiError && err.status === 412) {
-        toast.warning('Your copy is stale — reloading');
-        await refetch();
-      } else {
-        toast.error(err.message);
+  // ⌘S / Ctrl+S: bypass the debounce and save immediately. Prevents the browser's
+  // "save page as" dialog from stealing the shortcut.
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        if (state.dirty) flushNow();
       }
-    } finally {
-      setSaving(false);
-    }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [flushNow, state.dirty]);
+
+  const openPreviewWindow = () => {
+    // Named target so repeated clicks focus the existing tab instead of spawning dupes.
+    // No window features passed — browsers open a new TAB in the same window by default;
+    // passing `width`/`height` would force a popup window instead, which we don't want.
+    window.open(`/preview/${id}`, `vr-preview-${id}`);
   };
 
   if (error) {
     return (
-      <main className="min-h-screen grid place-items-center">
-        <p role="alert" className="text-destructive">Error: {error}</p>
+      <main className="min-h-screen grid place-items-center bg-[var(--color-paper)]">
+        <p role="alert" className="font-meta text-[var(--color-oxblood)]">Error · {error}</p>
       </main>
     );
   }
   if (!loaded) {
     return (
-      <main className="min-h-screen grid place-items-center">
-        <p className="text-muted-foreground">Loading…</p>
+      <main className="min-h-screen grid place-items-center bg-[var(--color-paper)]">
+        <p className="font-meta">Loading…</p>
       </main>
     );
   }
@@ -77,14 +104,16 @@ const Edit = () => {
   const supportsPhoto = TEMPLATES[state.resume.templateId]?.meta?.supportsPhoto;
 
   return (
-    <main className="min-h-screen bg-muted/20">
-      <header className="sticky top-0 z-10 bg-background border-b">
-        <div className="max-w-7xl mx-auto flex items-center gap-3 p-3">
-          <Button variant="ghost" size="sm" asChild>
-            <Link to="/"><ArrowLeft className="size-4" /> Back</Link>
+    <main className="min-h-screen bg-[var(--color-paper)]">
+      <header className="sticky top-0 z-10 bg-[var(--color-paper)]/95 backdrop-blur border-b border-[var(--color-rule)]">
+        <div className="max-w-7xl mx-auto flex items-center gap-4 px-6 py-3">
+          <Button variant="ghost" size="sm" asChild className="text-[var(--color-ink-faint)] -ml-2">
+            <Link to="/"><ArrowLeft className="size-4" /> Shelf</Link>
           </Button>
+          <Wordmark size="sm" className="hidden lg:block" />
+          <div className="h-6 w-px bg-[var(--color-rule)] hidden lg:block" />
           <Input
-            className="max-w-md"
+            className="max-w-sm rounded-sm border-[var(--color-rule)] font-serif text-base"
             value={state.resume.title}
             onChange={(e) => dispatch(actions.updateScalar({ title: e.target.value }))}
             placeholder="Internal title"
@@ -93,7 +122,7 @@ const Edit = () => {
             value={state.resume.templateId}
             onValueChange={(v) => dispatch(actions.updateScalar({ templateId: v }))}
           >
-            <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-32 rounded-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
               {Object.entries(TEMPLATES).map(([tid, t]) => (
                 <SelectItem key={tid} value={tid}>{t.meta.name}</SelectItem>
@@ -104,45 +133,50 @@ const Edit = () => {
             value={state.resume.paperSize}
             onValueChange={(v) => dispatch(actions.updateScalar({ paperSize: v }))}
           >
-            <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-24 rounded-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="A4">A4</SelectItem>
               <SelectItem value="Letter">Letter</SelectItem>
             </SelectContent>
           </Select>
 
-          <div className="ml-auto flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setShowPreview((v) => !v)}>
-              {showPreview
-                ? <><EyeOff className="size-4" /> Hide preview</>
-                : <><Eye className="size-4" /> Preview</>}
+          <div className="ml-auto flex items-center gap-3">
+            <SaveStatusChip status={saveStatus} savedAt={savedAt} onRetry={flushNow} />
+            {state.resume.published && (
+              <MetaChip tone="live">Published</MetaChip>
+            )}
+            <Button variant="ghost" size="sm" onClick={openPreviewWindow}
+              className="text-[var(--color-ink)] hover:bg-[var(--color-paper-deep)]">
+              <ExternalLink className="size-4" /> Open preview
             </Button>
-            <Button variant="outline" size="sm" onClick={save} disabled={!state.dirty || saving}>
-              <Save className="size-4" /> {saving ? 'Saving…' : 'Save'}
-            </Button>
-            <Button size="sm" onClick={() => setPublishing(true)}>
+            <Button size="sm" onClick={() => setPublishing(true)}
+              className="rounded-sm bg-[var(--color-ink)] hover:bg-[var(--color-ink-soft)] text-[var(--color-paper)]">
               <Upload className="size-4" /> Publish
             </Button>
           </div>
         </div>
       </header>
 
-      <div className={`max-w-7xl mx-auto p-4 grid gap-4 ${showPreview ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
-        <section>
-          <SectionList
-            state={state}
-            dispatch={dispatch}
-            photoSlot={supportsPhoto
-              ? <PhotoUpload resumeId={id} state={state} dispatch={dispatch} onUploaded={refetch} />
-              : null}
-          />
-        </section>
+      <div className="max-w-5xl mx-auto px-6 py-8">
+        <MetaChip className="mb-2">Composition</MetaChip>
+        <h1 className="font-serif text-3xl font-light text-[var(--color-ink)]">
+          {state.resume.title || <span className="italic text-[var(--color-ink-faint)]">Untitled</span>}
+        </h1>
+        <RuleLine variant="double" className="mt-6 mb-8" />
 
-        {showPreview && (
-          <aside className="lg:sticky lg:top-[68px] lg:self-start lg:h-[calc(100vh-80px)]">
-            <Preview resume={state.resume} photoDataUri={photoDataUri} />
-          </aside>
-        )}
+        <SectionList
+          state={state}
+          dispatch={dispatch}
+          photoSlot={supportsPhoto
+            ? <PhotoUpload
+                resumeId={id}
+                state={state}
+                dispatch={dispatch}
+                onSaveNow={flushNow}
+                onUploaded={() => refetch({ waitForPhoto: true })}
+              />
+            : null}
+        />
       </div>
 
       <PublishModal

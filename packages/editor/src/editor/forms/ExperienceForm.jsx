@@ -1,112 +1,106 @@
-// Experience section form — list-of-entries shape with move/remove/add + markdown bullets.
-// WHY index-based ids: entries don't carry their own `id` in the section data payload
-// (only the section itself does), so positional index is the natural key for list ops.
+// packages/editor/src/editor/forms/ExperienceForm.jsx
 import { ArrowDown, ArrowUp, X, Plus } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
+import FieldHint from '@/components/editorial/FieldHint';
+import RuleLine from '@/components/editorial/RuleLine';
+import { hint } from '../hints';
 
-const blank = () => ({
-  company: '', role: '', location: '', startDate: '', endDate: '', current: false, bullets: [''],
-});
+const H = ({ children, hintKey, first }) => {
+  const h = first ? hint('experience', hintKey) : null;
+  return (
+    <div className="grid gap-0.5">
+      <Label>{children}</Label>
+      {h && <FieldHint as={h.as}>{h.text}</FieldHint>}
+    </div>
+  );
+};
 
 const ExperienceForm = ({ data, onChange }) => {
-  const entries = data ?? [];
-  const replaceAt = (i, patch) => onChange(entries.map((e, idx) => (idx === i ? { ...e, ...patch } : e)));
+  const list = Array.isArray(data) ? data : [];
+  const patch = (i, p) => onChange(list.map((e, idx) => (idx === i ? { ...e, ...p } : e)));
+  const add = () => onChange([...list, {
+    company: '', role: '', location: '', startDate: '', endDate: '', current: false, body: '',
+  }]);
+  const remove = (i) => onChange(list.filter((_, idx) => idx !== i));
   const move = (i, dir) => {
     const j = dir === 'up' ? i - 1 : i + 1;
-    if (j < 0 || j >= entries.length) return;
-    const next = entries.slice();
-    [next[i], next[j]] = [next[j], next[i]];
-    onChange(next);
+    if (j < 0 || j >= list.length) return;
+    const next = list.slice(); [next[i], next[j]] = [next[j], next[i]]; onChange(next);
   };
-  const remove = (i) => onChange(entries.filter((_, idx) => idx !== i));
-  const add = () => onChange([...entries, blank()]);
-
-  const setBullet = (i, bi, v) => replaceAt(i, {
-    bullets: entries[i].bullets.map((b, idx) => (idx === bi ? v : b)),
-  });
-  const addBullet = (i) => replaceAt(i, { bullets: [...entries[i].bullets, ''] });
-  const rmBullet = (i, bi) => replaceAt(i, {
-    bullets: entries[i].bullets.filter((_, idx) => idx !== bi),
-  });
 
   return (
-    <div className="grid gap-4">
-      {entries.map((e, i) => (
-        <div key={i} className="rounded-md border p-3 grid gap-3">
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-sm">Entry #{i + 1}</span>
-            <div className="ml-auto flex gap-1">
+    <div className="grid gap-6">
+      {list.map((entry, i) => (
+        <div key={i} className="grid gap-4">
+          {i > 0 && <RuleLine className="my-2" />}
+          <div className="flex items-center justify-between">
+            <span className="font-meta">Entry {i + 1}</span>
+            <div className="flex gap-1">
               <Button type="button" variant="ghost" size="icon" aria-label="Move up"
-                onClick={() => move(i, 'up')} disabled={i === 0}>
-                <ArrowUp className="size-4" />
-              </Button>
+                onClick={() => move(i, 'up')} disabled={i === 0}><ArrowUp className="size-4" /></Button>
               <Button type="button" variant="ghost" size="icon" aria-label="Move down"
-                onClick={() => move(i, 'down')} disabled={i === entries.length - 1}>
-                <ArrowDown className="size-4" />
-              </Button>
+                onClick={() => move(i, 'down')} disabled={i === list.length - 1}><ArrowDown className="size-4" /></Button>
               <Button type="button" variant="ghost" size="icon" aria-label="Remove"
-                onClick={() => remove(i)} className="text-destructive">
-                <X className="size-4" />
-              </Button>
+                onClick={() => remove(i)} className="text-[var(--color-oxblood)]"><X className="size-4" /></Button>
             </div>
           </div>
 
-          <div className="grid sm:grid-cols-2 gap-3">
-            <div className="grid gap-1">
-              <Label>Company</Label>
-              <Input value={e.company} onChange={(ev) => replaceAt(i, { company: ev.target.value })} />
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1.5">
+              <H hintKey="company" first={i === 0}>Company</H>
+              <Input className="mt-auto" value={entry.company ?? ''} onChange={(e) => patch(i, { company: e.target.value })} />
             </div>
-            <div className="grid gap-1">
-              <Label>Role</Label>
-              <Input value={e.role} onChange={(ev) => replaceAt(i, { role: ev.target.value })} />
+            <div className="flex flex-col gap-1.5">
+              <H hintKey="role" first={i === 0}>Role</H>
+              <Input className="mt-auto" value={entry.role ?? ''} onChange={(e) => patch(i, { role: e.target.value })} />
             </div>
-            <div className="grid gap-1">
-              <Label>Location</Label>
-              <Input value={e.location ?? ''} onChange={(ev) => replaceAt(i, { location: ev.target.value })} />
+            <div className="flex flex-col gap-1.5">
+              <H hintKey="location" first={i === 0}>Location</H>
+              <Input className="mt-auto" value={entry.location ?? ''} onChange={(e) => patch(i, { location: e.target.value })} />
             </div>
-            <div className="grid gap-1">
-              <Label>Dates</Label>
-              <div className="flex items-center gap-2">
-                <Input type="date" value={e.startDate} onChange={(ev) => replaceAt(i, { startDate: ev.target.value })} />
-                <span>–</span>
-                <Input type="date" value={e.endDate ?? ''} onChange={(ev) => replaceAt(i, { endDate: ev.target.value })} disabled={e.current} />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <H hintKey="startDate" first={i === 0}>Start</H>
+                <Input className="mt-auto" placeholder="YYYY-MM or YYYY" value={entry.startDate ?? ''} onChange={(e) => patch(i, { startDate: e.target.value })} />
               </div>
-              <Label className="flex items-center gap-2 font-normal text-muted-foreground">
-                <Checkbox
-                  checked={e.current}
-                  onCheckedChange={(v) => replaceAt(i, { current: Boolean(v), endDate: v ? '' : e.endDate })}
-                />
-                Current
-              </Label>
+              <div className="flex flex-col gap-1.5">
+                <H hintKey="endDate" first={i === 0}>End</H>
+                <Input className="mt-auto" placeholder="YYYY-MM or YYYY" value={entry.endDate ?? ''} disabled={entry.current}
+                  onChange={(e) => patch(i, { endDate: e.target.value })} />
+              </div>
             </div>
-          </div>
-
-          <Separator />
-
-          <div className="grid gap-2">
-            <Label className="text-muted-foreground">
-              Bullets <span className="text-xs">(markdown — bold/italic/code/links only)</span>
+            <Label className="flex items-center gap-2 text-sm font-normal sm:col-span-2">
+              <Checkbox checked={!!entry.current} onCheckedChange={(v) => patch(i, { current: Boolean(v), endDate: v ? '' : entry.endDate })} />
+              Currently here
             </Label>
-            {e.bullets.map((b, bi) => (
-              <div key={bi} className="flex gap-2">
-                <Input value={b} onChange={(ev) => setBullet(i, bi, ev.target.value)} />
-                <Button type="button" variant="ghost" size="icon" aria-label="Remove bullet"
-                  onClick={() => rmBullet(i, bi)}>
-                  <X className="size-4" />
-                </Button>
-              </div>
-            ))}
-            <Button type="button" variant="outline" size="sm" onClick={() => addBullet(i)}>
-              <Plus className="size-4" /> Add bullet
-            </Button>
+          </div>
+
+          <div className="grid gap-1.5">
+            <H hintKey="body" first={i === 0}>Body</H>
+            <Textarea
+              rows={8}
+              value={entry.body ?? ''}
+              onChange={(e) => patch(i, { body: e.target.value })}
+              className="font-mono text-sm leading-relaxed"
+              placeholder={`Freeform markdown. A lead sentence becomes a paragraph; lines starting with "- " become bullets; indent nested bullets with two spaces.
+
+Design the architecture of the IAM and KMS services.
+- Create and maintain technical documentation
+- Monitor and optimize system performance
+
+Or pure nested bullets:
+- Lead security expert for the Analytics org
+  - Conduct risk assessments and drive GDPR compliance
+  - Trainer for Security Awareness and Secure Programming`}
+            />
           </div>
         </div>
       ))}
-      <Button type="button" variant="outline" onClick={add}>
+      <Button type="button" variant="outline" size="sm" onClick={add} className="justify-self-start rounded-sm">
         <Plus className="size-4" /> Add entry
       </Button>
     </div>
