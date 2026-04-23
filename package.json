@@ -5,7 +5,7 @@
   "description": "Visual CV authoring app (visual-resumes.isnan.eu)",
   "scripts": {
     "frontend:config": "terraform -chdir=packages/infrastructure output -raw editor_runtime_config > packages/editor/public/config.json",
-    "frontend:dev": "yarn frontend:config && yarn --cwd packages/editor dev",
+    "frontend:serve": "yarn frontend:config && yarn --cwd packages/editor dev",
     "frontend:build": "yarn --cwd packages/editor build",
     "frontend:deploy": "yarn frontend:build && yarn --cwd packages/editor deploy",
     "backend:build": "yarn --cwd packages/functions build",
