@@ -38,7 +38,22 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
-    rollupOptions: { output: { entryFileNames: 'assets/[name]-[hash].js' } },
+    rollupOptions: {
+      output: {
+        entryFileNames: 'assets/[name]-[hash].js',
+        // Split heavy vendor deps into their own chunks so the main bundle stays
+        // under the 500 kB warning threshold and the browser can cache each
+        // vendor independently across app deploys (app code changes far more
+        // often than aws-amplify or react). Rolldown (Vite 8) requires
+        // manualChunks as a function, not an object — match module paths.
+        manualChunks: (id) => {
+          if (!id.includes('node_modules')) return;
+          if (id.includes('aws-amplify') || id.includes('@aws-amplify') || id.includes('@aws-crypto') || id.includes('@aws-sdk') || id.includes('@smithy')) return 'amplify';
+          if (id.includes('react-router') || id.includes('/react-dom/') || id.includes('/react/') || id.includes('scheduler')) return 'react';
+          if (id.includes('radix-ui') || id.includes('@radix-ui')) return 'radix';
+        },
+      },
+    },
   },
   test: {
     environment: 'jsdom',
