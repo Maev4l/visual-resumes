@@ -48,22 +48,39 @@ const Dashboard = () => {
     catch (err) { toast.error(`Delete failed: ${err.message}`); }
   };
 
+  // `busyId` tracks which row is currently running a long-lived publish/unpublish
+  // action. Drives the DropdownMenuItem `disabled` prop so the user can't queue a
+  // second publish while the first (~5–10s renderer cold start) is still in flight.
+  const [busyId, setBusyId] = useState(null);
+
   const onUnpublish = async (id) => {
+    setBusyId(id);
     try { await api.revoke(id); toast.success('Unpublished'); load(); }
     catch (err) { toast.error(`Unpublish failed: ${err.message}`); }
+    finally { setBusyId(null); }
   };
 
   const onPublish = async (id) => {
+    setBusyId(id);
+    // Show a loading toast for the duration of the publish (renderer Lambda cold
+    // start + HTML/PDF generation can take 5–10s). On success we dismiss it and
+    // replace with the full-detail toast (URL + Copy action); on error we replace
+    // it with a simple error toast. Sonner's `toast.promise` success slot only
+    // accepts a plain string, so the richer toast has to be a separate call.
+    const toastId = toast.loading('Publishing…');
     try {
       const { data } = await api.publish(id);
       const url = `https://${getConfig().publicHost}/resumes/${data.slug}.html`;
       toast.success('Published', {
+        id: toastId,
         description: url,
         action: { label: 'Copy', onClick: () => navigator.clipboard.writeText(url) },
       });
       load();
     } catch (err) {
-      toast.error(`Publish failed: ${err.message}`);
+      toast.error(`Publish failed: ${err.message}`, { id: toastId });
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -128,8 +145,16 @@ const Dashboard = () => {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   {r.published
-                    ? <DropdownMenuItem onClick={() => onUnpublish(r.id)}>Unpublish</DropdownMenuItem>
-                    : <DropdownMenuItem onClick={() => onPublish(r.id)}>Publish</DropdownMenuItem>}
+                    ? (
+                      <DropdownMenuItem disabled={busyId === r.id} onClick={() => onUnpublish(r.id)}>
+                        {busyId === r.id ? 'Unpublishing…' : 'Unpublish'}
+                      </DropdownMenuItem>
+                    )
+                    : (
+                      <DropdownMenuItem disabled={busyId === r.id} onClick={() => onPublish(r.id)}>
+                        {busyId === r.id ? 'Publishing…' : 'Publish'}
+                      </DropdownMenuItem>
+                    )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     className="text-[var(--color-oxblood)] focus:text-[var(--color-oxblood)]"

@@ -6,8 +6,8 @@
 // If the user navigates here directly (no editor open), we fall back to fetching from
 // the API so the URL still works as a shareable authoring preview.
 //
-// Photo toggle: `?picture=false` in the URL hides the photo from the render, matching
-// the published HTML's own toggle convention. A floating mono chip flips it.
+// URL toggles:
+//  - ?picture=true → include the photo (default: hidden to match the published HTML)
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { api } from '@/api/client';
@@ -85,6 +85,11 @@ const Preview = () => {
     html = `<!doctype html><body style="font-family:ui-monospace,monospace;padding:1rem;color:#7A1F1F"><pre>${err.message}</pre></body>`;
   }
 
+  const chipClass =
+    'font-meta px-3 py-1.5 rounded-sm border border-[var(--color-rule)] bg-[var(--color-paper)] ' +
+    'text-[var(--color-ink-soft)] hover:bg-[var(--color-paper-deep)] hover:border-[var(--color-ink-faint)] ' +
+    'transition-colors shadow-[0_1px_0_var(--color-rule-soft)]';
+
   return (
     <div className="relative w-screen h-screen">
       <iframe
@@ -93,17 +98,11 @@ const Preview = () => {
         sandbox="allow-same-origin"
         className="absolute inset-0 w-full h-full border-0 bg-white"
       />
-      {/* Floating editorial toggle. Paper-tone chip with a hair border so it reads as
-          preview chrome, not part of the document. Position top-right keeps it out of
-          the masthead column where the photo itself lives. */}
-      <button
-        type="button"
-        onClick={togglePhoto}
-        className="absolute top-3 right-3 z-10 font-meta px-3 py-1.5 rounded-sm border border-[var(--color-rule)] bg-[var(--color-paper)] text-[var(--color-ink-soft)] hover:bg-[var(--color-paper-deep)] hover:border-[var(--color-ink-faint)] transition-colors shadow-[0_1px_0_var(--color-rule-soft)]"
-        aria-pressed={!showPhoto}
-      >
-        {showPhoto ? 'Photo · on' : 'Photo · off'}
-      </button>
+      <div className="absolute top-3 right-3 z-10">
+        <button type="button" onClick={togglePhoto} className={chipClass} aria-pressed={!showPhoto}>
+          {showPhoto ? 'Photo · on' : 'Photo · off'}
+        </button>
+      </div>
     </div>
   );
 };

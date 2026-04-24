@@ -16,82 +16,89 @@
     </script>
   </head>
   <body class="tpl-modern paper-{{paperSize}}">
+    {{!
+      Structure ported from the legacy react-jss modern template.
+      Two tall sibling blocks inside a flex row — NOT CSS Grid. Each column renders its
+      own masthead stripes (main: headline text + name-bar; sidebar: red-spacer + blue-
+      subspacer) so the stripes sit at the same vertical position without inter-cell
+      coupling. Flex-row-of-blocks fragments cleanly across PDF pages: both columns
+      continue onto page 2+ with their backgrounds intact. CSS Grid rows do NOT.
+    }}
     <main class="sheet">
-      {{! Rows 1 + 2 of the grid: headline (red text column + red sidebar spacer) and
-          name (blue column + blue sidebar spacer). CSS Grid auto-sizes each row to the
-          tallest cell, so the sidebar spacers inherit the headline / name-bar height. }}
-      {{#each sections}}
-        {{#ifEquals type "contact"}}
-          <div class="headline">{{#if data.headline}}{{data.headline}}{{/if}}</div>
-          <div class="sidebar-spacer"></div>
-          <div class="name-row">
-            <div class="triangle" aria-hidden="true"></div>
-            <div class="name-bar">{{data.name}}</div>
-          </div>
-          <div class="sidebar-subspacer"></div>
-        {{/ifEquals}}
-      {{/each}}
-
       <article class="main-column">
         {{#each sections}}
-          {{#if pageBreakBefore}}<div class="page-break"></div>{{/if}}
-
-          {{#ifEquals type "summary"}}
-            <section class="section summary">
-              <h2>{{sectionTitle this}}</h2>
-              <div class="body">{{{markdown data.text}}}</div>
-            </section>
-          {{/ifEquals}}
-
-          {{#ifEquals type "experience"}}
-            <section class="section experience">
-              <h2>{{sectionTitle this}}</h2>
-              {{#each data}}
-                {{#if pageBreakBefore}}<div class="page-break"></div>{{/if}}
-                <article class="entry">
-                  <div class="dates">{{formatDate startDate "MMMM YYYY"}} – {{#if current}}Present{{else}}{{formatDate endDate "MMMM YYYY"}}{{/if}}</div>
-                  <div class="details">
-                    <div class="role">{{role}}</div>
-                    <div class="company">{{company}}{{#if location}} · <span class="location">{{location}}</span>{{/if}}</div>
-                    {{#if body}}
-                      <div class="bullets">{{{markdown body}}}</div>
-                    {{/if}}
-                  </div>
-                </article>
-              {{/each}}
-            </section>
-          {{/ifEquals}}
-
-          {{! education lives in the sidebar for the modern template — see the sidebar loop below. }}
-
-          {{#ifEquals type "projects"}}
-            <section class="section projects">
-              <h2>{{sectionTitle this}}</h2>
-              {{#each data}}
-                <article class="entry project-item">
-                  <div class="project-name">{{#if link}}<a href="{{link}}">{{name}}</a>{{else}}{{name}}{{/if}}</div>
-                  <p class="description">{{{markdownInline description}}}</p>
-                  {{#if tech.length}}<p class="tech">{{#each tech}}{{this}}{{#unless @last}} · {{/unless}}{{/each}}</p>{{/if}}
-                  {{#if bullets.length}}<ul class="bullets">{{#each bullets}}<li>{{{markdownInline this}}}</li>{{/each}}</ul>{{/if}}
-                </article>
-              {{/each}}
-            </section>
-          {{/ifEquals}}
-
-          {{#ifEquals type "certifications"}}
-            <section class="section certifications">
-              <h2>{{sectionTitle this}}</h2>
-              <ul class="cert-list">
-                {{#each data}}
-                  <li>{{#if link}}<a href="{{link}}">{{name}}</a>{{else}}{{name}}{{/if}} — {{issuer}} ({{formatDate date "YYYY"}})</li>
-                {{/each}}
-              </ul>
-            </section>
+          {{#ifEquals type "contact"}}
+            <div class="headline">{{#if data.headline}}{{data.headline}}{{else}}&nbsp;{{/if}}</div>
+            <div class="name-row">
+              <div class="triangle" aria-hidden="true"></div>
+              <div class="name-bar">{{data.name}}</div>
+            </div>
           {{/ifEquals}}
         {{/each}}
+
+        <div class="main-content">
+          {{#each sections}}
+            {{#if pageBreakBefore}}<div class="page-break"></div>{{/if}}
+
+            {{#ifEquals type "summary"}}
+              <section class="section summary">
+                <h2>{{sectionTitle this}}</h2>
+                <div class="body">{{{markdown data.text}}}</div>
+              </section>
+            {{/ifEquals}}
+
+            {{#ifEquals type "experience"}}
+              <section class="section experience">
+                <h2>{{sectionTitle this}}</h2>
+                {{#each data}}
+                  {{#if pageBreakBefore}}<div class="page-break"></div>{{/if}}
+                  <article class="entry">
+                    <div class="dates">{{formatDate startDate "MMMM YYYY"}} – {{#if current}}Present{{else}}{{formatDate endDate "MMMM YYYY"}}{{/if}}</div>
+                    <div class="details">
+                      <div class="role">{{role}}</div>
+                      <div class="company">{{company}}{{#if location}} · <span class="location">{{location}}</span>{{/if}}</div>
+                      {{#if body}}
+                        <div class="bullets">{{{markdown body}}}</div>
+                      {{/if}}
+                    </div>
+                  </article>
+                {{/each}}
+              </section>
+            {{/ifEquals}}
+
+            {{! education lives in the sidebar for the modern template — see the sidebar below. }}
+
+            {{#ifEquals type "projects"}}
+              <section class="section projects">
+                <h2>{{sectionTitle this}}</h2>
+                {{#each data}}
+                  <article class="entry project-item">
+                    <div class="project-name">{{#if link}}<a href="{{link}}">{{name}}</a>{{else}}{{name}}{{/if}}</div>
+                    <p class="description">{{{markdownInline description}}}</p>
+                    {{#if tech.length}}<p class="tech">{{#each tech}}{{this}}{{#unless @last}} · {{/unless}}{{/each}}</p>{{/if}}
+                    {{#if bullets.length}}<ul class="bullets">{{#each bullets}}<li>{{{markdownInline this}}}</li>{{/each}}</ul>{{/if}}
+                  </article>
+                {{/each}}
+              </section>
+            {{/ifEquals}}
+
+            {{#ifEquals type "certifications"}}
+              <section class="section certifications">
+                <h2>{{sectionTitle this}}</h2>
+                <ul class="cert-list">
+                  {{#each data}}
+                    <li>{{#if link}}<a href="{{link}}">{{name}}</a>{{else}}{{name}}{{/if}} — {{issuer}} ({{formatDate date "YYYY"}})</li>
+                  {{/each}}
+                </ul>
+              </section>
+            {{/ifEquals}}
+          {{/each}}
+        </div>
       </article>
 
       <aside class="sidebar">
+        <div class="sidebar-spacer">&nbsp;</div>
+        <div class="sidebar-subspacer">&nbsp;</div>
         <div class="sidebar-content">
           {{#each sections}}
             {{#ifEquals type "contact"}}

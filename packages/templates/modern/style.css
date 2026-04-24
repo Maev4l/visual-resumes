@@ -1,7 +1,10 @@
 /* Modern - two-column with coral-red masthead. Ported from legacy react-jss template.
-   WHY layout: 65/35 split with the main content on the LEFT and the light-blue sidebar on
-   the RIGHT, mirroring the original MainContainer (LeftPanel + SideBar). The TriangleDown
-   SVG decoration from the old JSS is reproduced with pure CSS borders. */
+   WHY layout: flex-row with two tall-block columns (LEFT 65% main / RIGHT 35% sidebar).
+   Each column renders its OWN masthead stripes (main: headline + name-bar;
+   sidebar: red-spacer + blue-subspacer) sized via identical font-size/padding/line-height
+   formulas so the top stripes line up horizontally across the two columns. Stripes are
+   NOT in a shared grid row — this is what lets the PDF fragment cleanly to subsequent
+   pages with both columns keeping their backgrounds (a shared grid row cannot). */
 
 @import url("https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@300;400;600;700&display=swap");
 
@@ -22,33 +25,28 @@
 
 html, body { margin: 0; padding: 0; color: var(--text); font-family: var(--body-font); font-weight: 300; font-size: 11pt; line-height: 1.45; }
 
-/* Grid sheet: 2 columns × 3 rows. Rows 1 + 2 are the red/blue masthead stripes and their
-   sidebar counterparts — putting them in the SAME grid rows means both cells in each row
-   auto-size to the tallest sibling, so the sidebar spacers vertically match the headline
-   / name-bar heights without any hand-tuned formulas. Row 3 = content (65%/35%). */
+/* --- OUTER LAYOUT --- */
 .sheet {
-  display: grid;
-  grid-template-columns: 65% 35%;
-  grid-template-rows: auto auto 1fr;
-  gap: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;           /* both columns fill the sheet height */
+  justify-content: space-between;
   width: 100%;
-  min-height: 100vh;
+  min-height: 100vh;              /* browser: fill the viewport so the sidebar tint reaches the bottom */
 }
 
-.sheet > .headline { grid-row: 1; grid-column: 1; }
-.sheet > .sidebar-spacer { grid-row: 1; grid-column: 2; background-color: var(--red); }
-.sheet > .name-row { grid-row: 2; grid-column: 1; position: relative; }
-.sheet > .sidebar-subspacer { grid-row: 2; grid-column: 2; background-color: var(--light-blue); }
-.sheet > .main-column { grid-row: 3; grid-column: 1; }
-.sheet > .sidebar { grid-row: 3; grid-column: 2; }
+.main-column {
+  flex: 0 0 65%;
+  max-width: 65%;
+}
 
-/* --- LEFT column: masthead + content --- */
-/* `gap` (not per-section margins) because flex-column items don't collapse vertical
-   margins — top+bottom margins would stack to 3em between sections instead of 1.5em. */
-/* `padding-top` separates the first content section from the blue name-bar row above.
-   Without it Experience butts against the name-bar with only the section h2 margin. */
-.main-column { display: flex; flex-direction: column; gap: 1.5em; padding-top: 2.5em; }
+.sidebar {
+  flex: 0 0 35%;
+  max-width: 35%;
+  background-color: var(--light-blue);
+}
 
+/* --- LEFT column masthead stripes --- */
 .headline {
   font-weight: 300;
   font-size: 350%;
@@ -57,19 +55,18 @@ html, body { margin: 0; padding: 0; color: var(--text); font-family: var(--body-
   min-height: 1.2em;
   line-height: 1.1;
 }
+
+.name-row { position: relative; }
 .name-row .name-bar {
-  position: relative;
   font-weight: 300;
   font-size: 175%;
   background-color: var(--light-blue);
   padding: 20px;
+  position: relative;
 }
-/* TriangleDown port: a white downward-pointing notch at the TOP of the blue name-bar,
-   offset 70px from the left — exactly where the legacy site anchored its absolute-positioned
-   TriangleDown div. ::before on the bar (not absolute-positioned in the masthead) so the
-   notch is always at the red/blue seam regardless of header height. The <div class="triangle">
-   emitted by the template is hidden below — redundant after this change but kept so older
-   rendered HTML (if any) doesn't break. */
+/* Downward triangle notch, pinned to the name-bar's top-left at x=70px. Keeps the notch
+   glued to the red/blue seam regardless of headline height. The <div class="triangle">
+   emitted by the template is hidden below (kept as a compatibility stub). */
 .name-row .name-bar::before {
   content: '';
   position: absolute;
@@ -80,13 +77,19 @@ html, body { margin: 0; padding: 0; color: var(--text); font-family: var(--body-
   border-left: 15px solid transparent;
   border-right: 15px solid transparent;
   border-top: 12px solid var(--white);
-  filter: drop-shadow(rgba(0, 0, 0, 0.1) 0 3px 2px);
+  /* No drop-shadow: Chromium's PDF engine paints the shadow as a halo around the
+     whole white triangle rather than just below it, which shows up as a visible
+     line along the triangle's top edge in printed output. */
   z-index: 1;
 }
 .name-row .triangle { display: none; }
 
-.main-column .section { margin: 0 20px; break-inside: avoid; }
-.main-column .section h2 {
+/* --- LEFT column content --- */
+.main-content { padding: 2.5em 20px 0; }
+
+.main-content .section { margin: 0 0 1.5em; break-inside: auto; }
+.main-content .section:first-child { margin-top: 0; }
+.main-content .section h2 {
   font-size: 150%;
   font-weight: 700;
   text-transform: uppercase;
@@ -94,7 +97,7 @@ html, body { margin: 0; padding: 0; color: var(--text); font-family: var(--body-
   break-after: avoid;
 }
 
-/* Experience / education: left dates column + right details. */
+/* Experience: left dates column + right details. */
 .entry { display: flex; margin: 0 0 0.75em; break-inside: avoid; }
 .entry .dates { font-weight: 400; min-width: 125px; max-width: 125px; color: var(--muted); padding-right: 5px; }
 .entry .details { flex: 1; }
@@ -121,13 +124,30 @@ html, body { margin: 0; padding: 0; color: var(--text); font-family: var(--body-
 .cert-list { list-style: disc; padding-left: 1.25em; margin: 0; }
 .cert-list li { margin: 0.2em 0; }
 
-/* --- RIGHT sidebar (row 3 content column only — the red/blue spacers above sit in
-       their own grid rows so they auto-align to the headline / name-bar heights). --- */
-.sidebar { background-color: var(--light-blue); }
+/* --- RIGHT sidebar masthead stripes + content --- */
+/* sidebar-spacer + subspacer are inside the sidebar column and use the SAME font-size +
+   padding + line-height as the corresponding left-column elements (headline / name-bar),
+   so they naturally render at the same heights. Content is `&nbsp;` so the box has a
+   baseline character to measure against. */
+.sidebar-spacer {
+  font-weight: 300;
+  font-size: 350%;
+  background-color: var(--red);
+  padding: 20px;
+  min-height: 1.2em;
+  line-height: 1.1;
+}
+.sidebar-subspacer {
+  font-weight: 300;
+  font-size: 175%;
+  background-color: var(--light-blue);
+  padding: 20px;
+}
+
 /* No horizontal padding on the content wrapper — the gray section-title bars must
    extend to the sidebar edges. The individual blocks (`.coordinates`, `.side-body`)
    bring their own inner padding so their text content stays inset from the edge. */
-.sidebar-content { flex: 1; padding: 0 0 20px; }
+.sidebar-content { padding: 0 0 20px; }
 
 /* Coordinates block at the top of the sidebar — photo + two-column key/value rows. */
 .coordinates { padding: 10px; margin-bottom: 1.5em; }
