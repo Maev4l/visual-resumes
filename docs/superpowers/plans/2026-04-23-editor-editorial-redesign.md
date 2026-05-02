@@ -1523,7 +1523,10 @@ import { useCallback, useEffect, useReducer, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, ExternalLink, Upload } from 'lucide-react';
 
+import { toast } from 'sonner';
+
 import { api } from '@/api/client';
+import { getConfig } from '@/config';
 import { reducer, initialState, actions } from '@/editor/reducer';
 import { useBroadcastPreview } from '@/editor/useBroadcastPreview';
 import { useAutosave } from '@/editor/useAutosave';
@@ -1547,6 +1550,7 @@ const Edit = () => {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(null);
   const [publishing, setPublishing] = useState(false);
+  const [republishing, setRepublishing] = useState(false);
 
   // Publish resume state over BroadcastChannel to any /preview/:id window.
   useBroadcastPreview({ resumeId: id, resume: state.resume, photoDataUri });
@@ -1589,6 +1593,31 @@ const Edit = () => {
     // passing `width`/`height` would force a popup window, which we don't want.
     window.open(`/preview/${id}`, `vr-preview-${id}`);
   };
+
+  // One-click republish for an already-published resume. Bypasses the modal so
+  // updating the live artifact feels as quick as autosave. Pending edits are
+  // flushed first so the published HTML/PDF reflects the latest state.
+  const doRepublish = useCallback(async () => {
+    setRepublishing(true);
+    const toastId = toast.loading('Updating published version…');
+    try {
+      if (state.dirty) await flushNow();
+      const { data } = await api.publish(id);
+      dispatch(actions.updateScalar({
+        published: { slug: data.slug, publishedAt: new Date().toISOString() },
+      }));
+      const url = `https://${getConfig().publicHost}/resumes/${data.slug}.html`;
+      toast.success('Updated', {
+        id: toastId,
+        description: url,
+        action: { label: 'Copy', onClick: () => navigator.clipboard.writeText(url) },
+      });
+    } catch (err) {
+      toast.error(`Update failed: ${err.message}`, { id: toastId });
+    } finally {
+      setRepublishing(false);
+    }
+  }, [id, state.dirty, flushNow]);
 
   if (error) {
     return (
@@ -1646,17 +1675,36 @@ const Edit = () => {
 
           <div className="ml-auto flex items-center gap-3">
             <SaveStatusChip status={saveStatus} savedAt={savedAt} onRetry={flushNow} />
+            {/* Published state splits into two affordances: the chip-button is the passive
+                status (click → modal for URL inspection / unpublish), and the primary CTA
+                becomes one-click "Update published" — overwrites the live artifact at the
+                same slug without opening the modal, matching the autosave one-step ethos. */}
             {state.resume.published && (
-              <MetaChip tone="live">Published</MetaChip>
+              <button
+                type="button"
+                onClick={() => setPublishing(true)}
+                title="Manage publication"
+                className="font-meta inline-flex items-center gap-1.5 text-[var(--color-oxblood)] hover:underline"
+              >
+                <span className="inline-block size-1.5 rounded-full bg-[var(--color-oxblood)]" />
+                Published
+              </button>
             )}
             <Button variant="ghost" size="sm" onClick={openPreviewWindow}
               className="text-[var(--color-ink)] hover:bg-[var(--color-paper-deep)]">
               <ExternalLink className="size-4" /> Open preview
             </Button>
-            <Button size="sm" onClick={() => setPublishing(true)}
-              className="rounded-sm bg-[var(--color-ink)] hover:bg-[var(--color-ink-soft)] text-[var(--color-paper)]">
-              <Upload className="size-4" /> Publish
-            </Button>
+            {state.resume.published ? (
+              <Button size="sm" onClick={doRepublish} disabled={republishing}
+                className="rounded-sm bg-[var(--color-ink)] hover:bg-[var(--color-ink-soft)] text-[var(--color-paper)]">
+                <Upload className="size-4" /> {republishing ? 'Updating…' : 'Update published'}
+              </Button>
+            ) : (
+              <Button size="sm" onClick={() => setPublishing(true)}
+                className="rounded-sm bg-[var(--color-ink)] hover:bg-[var(--color-ink-soft)] text-[var(--color-paper)]">
+                <Upload className="size-4" /> Publish
+              </Button>
+            )}
           </div>
         </div>
       </header>
@@ -1855,7 +1903,7 @@ Run: `rm packages/editor/src/editor/Preview.jsx`
 - [ ] **Step 5: Visit `/edit/<some-existing-id>` and sanity-check**
 
 Expected:
-- Sticky top bar: back-to-shelf link, wordmark (desktop only), internal title input in Fraunces, template/paper selects, autosave status chip, "Open preview" button, Publish.
+- Sticky top bar: back-to-shelf link, wordmark (desktop only), internal title input in Fraunces, template/paper selects, autosave status chip, "Open preview" button. Primary CTA is context-aware: **Publish** (opens modal) when unpublished, or a **● Published** chip-button (opens modal for URL inspection / unpublish) + an **Update published** primary button (one-click republish, no modal) when already published.
 - Below: "Composition" meta chip (+ "Unsaved changes" chip when dirty), serif h1 of the title, double rule, section list.
 - Each section is rule-separated (not card-boxed). Section title is Fraunces.
 - Clicking "Open preview" opens a new window at `/preview/:id` sized roughly 900×1200. The preview window shows the resume rendered at full bleed. Typing in the editor updates the preview within ~100ms.
@@ -1876,9 +1924,9 @@ Expected: clean.
 - Modify: `packages/editor/src/pages/Pending.jsx`
 - Modify: `packages/editor/src/pages/NotFound.jsx`
 
-- [ ] **Step 1: `PublishModal.jsx` — editorial tone**
+- [ ] **Step 1: `PublishModal.jsx` — editorial tone + republish-without-unpublish**
 
-Read the current modal. Replace its outer shadcn `DialogContent` body so the dialog feels like a typeset confirmation card: serif title + rule lines + mono URLs. Keep all logic (publish / revoke / copy-to-clipboard / toasts) untouched. Replace the dialog content region only — the trigger/control flow stays the same. Sketch of the new content layout:
+Read the current modal. Replace its outer shadcn `DialogContent` body so the dialog feels like a typeset confirmation card: serif title + rule lines + mono URLs. Keep all logic (publish / revoke / copy-to-clipboard / toasts), and additionally expose a `doRepublish` action when the resume is already published — same `POST /resumes/{id}/publish` endpoint (idempotent on the slug; renderer test `republish: reuses existing slug` covers this), different toast label ("Updated"). The published-state footer becomes: primary **Update published** button (ink) + secondary **Unpublish** ghost link (oxblood) + Close. This means the user no longer has to unpublish-then-republish to overwrite the live artifact. Replace the dialog content region only — the trigger/control flow stays the same. Sketch of the new content layout:
 
 ```jsx
 // Inside <DialogContent …>:
@@ -1903,6 +1951,11 @@ Read the current modal. Replace its outer shadcn `DialogContent` body so the dia
     - "Copy" buttons: `variant="ghost"` with mono label
     - Primary action button: `className="rounded-sm bg-[var(--color-ink)] hover:bg-[var(--color-ink-soft)] text-[var(--color-paper)]"`
     - Destructive "Unpublish" button: `className="text-[var(--color-oxblood)]"`
+
+    Footer when `result` is set (published state): render BOTH a primary
+    "Update published" button (calls a new `doRepublish` handler hitting the
+    same publish endpoint) AND the existing destructive "Unpublish" ghost.
+    Footer when `result` is null (draft state): only the primary "Publish".
 */}
 ```
 

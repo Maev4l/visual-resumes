@@ -7,8 +7,10 @@
 import { useCallback, useEffect, useReducer, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, ExternalLink, Upload } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { api } from '@/api/client';
+import { getConfig } from '@/config';
 import { reducer, initialState, actions } from '@/editor/reducer';
 import { useBroadcastPreview } from '@/editor/useBroadcastPreview';
 import { useAutosave } from '@/editor/useAutosave';
@@ -32,6 +34,7 @@ const Edit = () => {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(null);
   const [publishing, setPublishing] = useState(false);
+  const [republishing, setRepublishing] = useState(false);
 
   // Publish resume state over BroadcastChannel to any /preview/:id window.
   useBroadcastPreview({ resumeId: id, resume: state.resume, photoDataUri });
@@ -85,6 +88,39 @@ const Edit = () => {
     // passing `width`/`height` would force a popup window instead, which we don't want.
     window.open(`/preview/${id}`, `vr-preview-${id}`);
   };
+
+  // One-click republish for an already-published resume. Bypasses the modal so
+  // updating the live artifact feels as quick as autosave. Pending edits are
+  // flushed first so the published HTML/PDF reflects the latest state.
+  // WHY refetch on conflict: the renderer's back-write 412'd because something
+  // wrote the resume JSON during publish — our local etag is stale and we don't
+  // know the authoritative state, so resync rather than dispatch a guess.
+  const doRepublish = useCallback(async () => {
+    setRepublishing(true);
+    const toastId = toast.loading('Updating published version…');
+    try {
+      if (state.dirty) await flushNow();
+      const { data, etag: newEtag } = await api.publish(id);
+      if (newEtag) {
+        dispatch(actions.republished({
+          etag: newEtag,
+          published: { slug: data.slug, publishedAt: new Date().toISOString() },
+        }));
+      } else {
+        await refetch();
+      }
+      const url = `https://${getConfig().publicHost}/resumes/${data.slug}.html`;
+      toast.success('Updated', {
+        id: toastId,
+        description: url,
+        action: { label: 'Copy', onClick: () => navigator.clipboard.writeText(url) },
+      });
+    } catch (err) {
+      toast.error(`Update failed: ${err.message}`, { id: toastId });
+    } finally {
+      setRepublishing(false);
+    }
+  }, [id, state.dirty, flushNow, refetch]);
 
   if (error) {
     return (
@@ -142,17 +178,36 @@ const Edit = () => {
 
           <div className="ml-auto flex items-center gap-3">
             <SaveStatusChip status={saveStatus} savedAt={savedAt} onRetry={flushNow} />
+            {/* Published state splits into two affordances: the chip-button is the passive
+                status (click → modal for URL inspection / unpublish), and the primary CTA
+                becomes one-click "Update published" — overwrites the live artifact at the
+                same slug without opening the modal, matching the autosave one-step ethos. */}
             {state.resume.published && (
-              <MetaChip tone="live">Published</MetaChip>
+              <button
+                type="button"
+                onClick={() => setPublishing(true)}
+                title="Manage publication"
+                className="font-meta inline-flex items-center gap-1.5 text-[var(--color-oxblood)] hover:underline"
+              >
+                <span className="inline-block size-1.5 rounded-full bg-[var(--color-oxblood)]" />
+                Published
+              </button>
             )}
             <Button variant="ghost" size="sm" onClick={openPreviewWindow}
               className="text-[var(--color-ink)] hover:bg-[var(--color-paper-deep)]">
               <ExternalLink className="size-4" /> Open preview
             </Button>
-            <Button size="sm" onClick={() => setPublishing(true)}
-              className="rounded-sm bg-[var(--color-ink)] hover:bg-[var(--color-ink-soft)] text-[var(--color-paper)]">
-              <Upload className="size-4" /> Publish
-            </Button>
+            {state.resume.published ? (
+              <Button size="sm" onClick={doRepublish} disabled={republishing}
+                className="rounded-sm bg-[var(--color-ink)] hover:bg-[var(--color-ink-soft)] text-[var(--color-paper)]">
+                <Upload className="size-4" /> {republishing ? 'Updating…' : 'Update published'}
+              </Button>
+            ) : (
+              <Button size="sm" onClick={() => setPublishing(true)}
+                className="rounded-sm bg-[var(--color-ink)] hover:bg-[var(--color-ink-soft)] text-[var(--color-paper)]">
+                <Upload className="size-4" /> Publish
+              </Button>
+            )}
           </div>
         </div>
       </header>
@@ -183,9 +238,19 @@ const Edit = () => {
         resume={state.resume}
         open={publishing}
         onOpenChange={setPublishing}
-        onPublished={(data) => dispatch(actions.updateScalar({
-          published: { slug: data.slug, publishedAt: new Date().toISOString() },
-        }))}
+        // The publish API rotates the resume-JSON etag (back-writes `published`).
+        // Apply both fields atomically here so no stale-etag autosave follows the dialog.
+        onPublished={({ data, etag: newEtag }) => {
+          if (newEtag) {
+            dispatch(actions.republished({
+              etag: newEtag,
+              published: { slug: data.slug, publishedAt: new Date().toISOString() },
+            }));
+          } else {
+            // Back-write conflict during publish — server state is unknown, refetch.
+            refetch();
+          }
+        }}
         onRevoked={() => dispatch(actions.updateScalar({ published: null }))}
       />
     </main>

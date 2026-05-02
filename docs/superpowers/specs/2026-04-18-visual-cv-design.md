@@ -231,7 +231,9 @@ Editor exposes a per-section and per-entry "Insert page break before this" toggl
   - "Insert page break before" toggle on sections and entries.
 - Top bar: **Preview** toggle → full-width `<iframe srcdoc>` with client-side-rendered HTML (using `packages/shared/renderer.js` + current form state).
 - **Save** → `PUT /api/resumes/{id}` with `If-Match: <etag>`. 412 → toast + refresh.
-- **Publish** → modal confirm → `POST /api/resumes/{id}/publish` (routed in API Gateway directly to the `renderer` Lambda) → returns `{ slug, htmlUrl, pdfUrl }` → success modal with copyable URLs and Unpublish action.
+- **Publish** → header CTA is context-aware:
+  - When **unpublished**: "Publish" button opens a modal that confirms and then calls `POST /api/resumes/{id}/publish` (routed via API Gateway to the `renderer` Lambda); the success view in the same modal shows the copyable HTML/PDF URLs.
+  - When **already published**: the header shows two affordances — a clickable "● Published" chip (oxblood dot + label) that opens the modal for URL inspection / unpublish, and an "Update published" primary button that **one-click** re-publishes (no modal). Re-publish flushes any pending autosave first, then calls the same publish endpoint (idempotent on the slug — overwrites HTML/PDF + invalidates CloudFront), and surfaces the result via a toast with an inline Copy-URL action. The modal also exposes both "Update published" (primary) and "Unpublish" (secondary, destructive) so users who entered via the chip don't have to back out to re-publish.
 
 ### Unpublish
 
@@ -244,6 +246,8 @@ Editor exposes a per-section and per-entry "Insert page break before this" toggl
 ### Republish
 
 - Reuses the same slug. Overwrites HTML, PDF, photo objects. Invalidates CloudFront so viewers see the new version.
+- Back-writes `published: {slug, publishedAt}` onto the resume JSON with `IfMatch: <pre-publish ETag>`. This rotates the JSON's S3 ETag — the API surfaces the new ETag in both the response body (`etag` field) and the HTTP `etag` response header so the editor can update `state.etag`. Without this, every autosave after publish would 412 with "stale ETag".
+- If the back-write itself 412s (genuinely concurrent edit during publish), the API returns `conflict: true` with no `etag`; the client refetches.
 
 ## API
 
@@ -257,7 +261,7 @@ All routes under `/api/*`, all require Cognito JWT (`Authorization: Bearer <id_t
 | `PUT /api/resumes/{id}` | api | Save (`If-Match` required) |
 | `DELETE /api/resumes/{id}` | api | Delete (+ revoke if published) |
 | `POST /api/resumes/{id}/photo` | api | Returns presigned PUT URL |
-| `POST /api/resumes/{id}/publish` | renderer | Renders HTML + PDF, uploads, returns `{ slug, htmlUrl, pdfUrl }` |
+| `POST /api/resumes/{id}/publish` | renderer | Renders HTML + PDF, uploads, conditionally back-writes `published: {slug, publishedAt}` onto the resume JSON, invalidates CloudFront. Returns `{ slug, hasPhoto, etag, conflict }`. The `etag` (also exposed as the `etag` HTTP response header) is the resume-JSON's new ETag — the editor rotates `state.etag` to it so the next autosave doesn't 412. `conflict: true` (and no `etag`) is set when the back-write 412'd because of a concurrent edit during publish — client should refetch. |
 | `POST /api/resumes/{id}/revoke` | api | Deletes published artifacts + invalidates CloudFront |
 
 ## Infrastructure

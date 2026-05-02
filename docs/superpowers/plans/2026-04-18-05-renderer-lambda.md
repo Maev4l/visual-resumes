@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the `packages/functions/renderer` hello-world stub with a real handler wired to `POST /api/resumes/{id}/publish`. The handler reads the resume JSON, reads the already-resized WebP photo (if any) and inlines it into the HTML as a base64 data URI, renders HTML via the shared renderer, generates a PDF via headless Chromium, uploads the two artifacts (html + pdf) to the published bucket, writes `published: { slug, publishedAt }` back onto the resume JSON, and issues a CloudFront invalidation. Returns `{ slug, hasPhoto }` to the editor.
+**Goal:** Replace the `packages/functions/renderer` hello-world stub with a real handler wired to `POST /api/resumes/{id}/publish`. The handler reads the resume JSON, reads the already-resized WebP photo (if any) and inlines it into the HTML as a base64 data URI, renders HTML via the shared renderer, generates a PDF via headless Chromium, uploads the two artifacts (html + pdf) to the published bucket, writes `published: { slug, publishedAt }` back onto the resume JSON, and issues a CloudFront invalidation. Returns `{ slug, hasPhoto, etag, conflict }` — the back-write's new resume-JSON ETag is surfaced both in the body and as the HTTP `etag` response header so the editor can rotate `state.etag` (without it every post-publish autosave 412s). On a back-write 412 (genuinely concurrent edit during publish) the response carries `conflict: true` with no etag and the client refetches.
 
 **Architecture:** Container Lambda on arm64 (Graviton). The shared `packages/shared/renderer.node.js` loads templates from disk; templates are copied into the image at build time (under `/var/task/templates`). PDF generation uses `puppeteer-core` + `@sparticuz/chromium-min` (the `-min` variant ships no binary — the npm `@sparticuz/chromium` package is x86_64-only, so for arm64 we use `-min` and curl the arm64 pack from GitHub releases during `docker build`, extracting it to `/opt/chromium/`). No photo re-encoding at publish time — the image-resizer Lambda already produced a 600px WebP at `users/<customId>/photos/<resumeId>.webp`, the renderer just base64-encodes it into the HTML. Slug is 12-char nanoid with alphabet `0123456789a-z`; first publish uses `IfNoneMatch: '*'` with up to 5 retries to guard against collisions, republish overwrites unconditionally. Writes back to the resume JSON use conditional S3 writes so a concurrent save from the editor doesn't get clobbered.
 
@@ -575,7 +575,7 @@ const loadPhotoDataUri = async ({ storageBucket, photoKey, client }) => {
  * @param {(html: string, format: string) => Promise<Buffer>} [p.htmlToPdf]  test seam
  * @param {S3Client} [p.s3Client]
  * @param {CloudFrontClient} [p.cfClient]
- * @returns {Promise<{ slug: string, hasPhoto: boolean }>}
+ * @returns {Promise<{ slug: string, hasPhoto: boolean, etag?: string, conflict: boolean }>}
  */
 export const publish = async ({
   customId,
@@ -653,17 +653,25 @@ export const publish = async ({
   }));
 
   // Write `published` back onto the resume (conditional so concurrent editor saves are respected).
+  // WHY capture+return the resulting ETag: the back-write rotates the resume-JSON's
+  // S3 ETag, so the editor's `state.etag` is otherwise stale on the very next autosave
+  // and every post-publish save 412s ("Your copy was stale — reloaded"). The handler
+  // surfaces this as the `etag` HTTP response header (mirrors put-resume).
   const updated = { ...resume, published: { slug, publishedAt: new Date().toISOString() } };
+  let resumeEtag;
+  let conflict = false;
   try {
-    await s3Client.send(new PutObjectCommand({
+    const result = await s3Client.send(new PutObjectCommand({
       Bucket: storageBucket,
       Key: `users/${customId}/resumes/${resumeId}.json`,
       Body: JSON.stringify(updated),
       ContentType: 'application/json',
       IfMatch: etag,
     }));
+    resumeEtag = result.ETag;
   } catch (err) {
     if (err.name === 'PreconditionFailed') {
+      conflict = true;
       console.warn(`publish: concurrent edit on ${resumeId}; artifacts are live but back-write skipped. Client should refetch.`);
     } else {
       throw err;
@@ -680,7 +688,7 @@ export const publish = async ({
     },
   }));
 
-  return { slug, hasPhoto: Boolean(photoSrc) };
+  return { slug, hasPhoto: Boolean(photoSrc), etag: resumeEtag, conflict };
 };
 
 publish.NotFoundError = NotFoundError;
@@ -766,6 +774,30 @@ describe('renderer handler', () => {
     assert.equal(body.hasPhoto, false);
   });
 
+  // WHY: editor must rotate state.etag after publish, otherwise the next
+  // autosave 412s. Mirrors put-resume's contract — return the new etag both
+  // in the body and as the `etag` HTTP response header.
+  it('exposes the new resume-JSON etag both in the body and as an HTTP etag header', async () => {
+    s3.on(GetObjectCommand).resolves({
+      Body: { transformToString: async () => JSON.stringify(resume()) },
+      ETag: '"old"',
+    });
+    s3.on(PutObjectCommand).callsFake(async (cmd) => {
+      const { Bucket, Key } = cmd.input ?? cmd;
+      if (Bucket === 'visual-resumes-storage' && Key === 'users/U1/resumes/R1.json') {
+        return { ETag: '"resume-after-publish"' };
+      }
+      return {};
+    });
+    cf.on(CreateInvalidationCommand).resolves({});
+
+    const res = await handler(evt());
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.headers.etag, '"resume-after-publish"');
+    const body = JSON.parse(res.body);
+    assert.equal(body.etag, '"resume-after-publish"');
+  });
+
   it('401 when JWT claim is missing', async () => {
     const res = await handler({ ...evt(), requestContext: {} });
     assert.equal(res.statusCode, 401);
@@ -804,9 +836,9 @@ const chromiumDisabled = () => process.env.RENDERER_DISABLE_CHROMIUM === '1';
 
 const fakeHtmlToPdfForTests = async (html) => Buffer.from(`PDF:${html.length}`);
 
-const response = (statusCode, bodyObject) => ({
+const response = (statusCode, bodyObject, extraHeaders = {}) => ({
   statusCode,
-  headers: { 'content-type': 'application/json; charset=utf-8' },
+  headers: { 'content-type': 'application/json; charset=utf-8', ...extraHeaders },
   body: JSON.stringify(bodyObject),
 });
 
@@ -846,7 +878,9 @@ export const handler = async (event) => {
       htmlToPdf,
     });
 
-    return response(200, out);
+    // WHY etag header: the editor reads it from response headers (matches put-resume's
+    // contract) to rotate `state.etag` after publish — without it the next autosave 412s.
+    return response(200, out, out.etag ? { etag: out.etag } : {});
   } catch (err) {
     if (err.code === 'Unauthorized') return error(401, 'Unauthorized', err.message);
     if (err.name === 'NotFound')     return error(404, 'NotFound', err.message);
@@ -1086,7 +1120,7 @@ curl -sS -o /dev/null -w "html: %{http_code}\n" "$HOST/resumes/$SLUG.html"
 curl -sS -o /dev/null -w "pdf:  %{http_code}\n" "$HOST/resumes/$SLUG.pdf"
 ```
 
-Expected: publish returns `{ slug, hasPhoto }` with status 200; `https://visual-resumes.isnan.eu/resumes/$SLUG.html` and `.pdf` both return 200 (CloudFront may need a few seconds to propagate after invalidation).
+Expected: publish returns `{ slug, hasPhoto, etag, conflict }` with status 200, plus an `etag` HTTP response header carrying the resume-JSON's new ETag; `https://visual-resumes.isnan.eu/resumes/$SLUG.html` and `.pdf` both return 200 (CloudFront may need a few seconds to propagate after invalidation).
 
 - [ ] **Step 4: Revoke (via api Lambda from Plan 3) — cleanup**
 

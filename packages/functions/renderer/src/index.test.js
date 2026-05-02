@@ -55,6 +55,30 @@ describe('renderer handler', () => {
     assert.equal(body.hasPhoto, false);
   });
 
+  // WHY: the editor must rotate state.etag after publish, otherwise the next
+  // autosave 412s. Mirrors put-resume's contract — return the new etag both in
+  // the body and as the `etag` HTTP response header.
+  it('exposes the new resume-JSON etag both in the body and as an HTTP etag header', async () => {
+    s3.on(GetObjectCommand).resolves({
+      Body: { transformToString: async () => JSON.stringify(resume()) },
+      ETag: '"old"',
+    });
+    s3.on(PutObjectCommand).callsFake(async (cmd) => {
+      const { Bucket, Key } = cmd.input ?? cmd;
+      if (Bucket === 'visual-resumes-storage' && Key === 'users/U1/resumes/R1.json') {
+        return { ETag: '"resume-after-publish"' };
+      }
+      return {};
+    });
+    cf.on(CreateInvalidationCommand).resolves({});
+
+    const res = await handler(evt());
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.headers.etag, '"resume-after-publish"');
+    const body = JSON.parse(res.body);
+    assert.equal(body.etag, '"resume-after-publish"');
+  });
+
   it('401 when JWT claim is missing', async () => {
     const res = await handler({ ...evt(), requestContext: {} });
     assert.equal(res.statusCode, 401);

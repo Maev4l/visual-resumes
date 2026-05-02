@@ -14,6 +14,10 @@ export const initialState = { resume: null, etag: null, dirty: false };
 export const actions = {
   hydrate:           ({ resume, etag }) =>   ({ type: 'hydrate', resume, etag }),
   saved:             (etag) =>               ({ type: 'saved', etag }),
+  // Distinct from `saved` because publish back-writes BOTH the etag and the
+  // `published` field server-side — atomic apply on the client avoids a redundant
+  // autosave round-trip and keeps state and S3 consistent in one shot.
+  republished:       ({ etag, published }) => ({ type: 'republished', etag, published }),
   updateScalar:      (patch) =>              ({ type: 'updateScalar', patch }),
   addSection:        ({ type }) =>           ({ type: 'addSection', sectionType: type }),
   removeSection:     ({ id }) =>             ({ type: 'removeSection', id }),
@@ -44,6 +48,15 @@ export const reducer = (state, action) => {
       // Server accepted a PUT; keep the locally-edited resume but rotate the etag
       // and flip dirty off so autosave pauses until the next edit.
       return { ...state, etag: action.etag, dirty: false };
+    case 'republished':
+      // Renderer Lambda back-wrote `published` AND rotated the etag in one step.
+      // Apply both atomically + clear dirty so no follow-up autosave fires.
+      return {
+        ...state,
+        resume: { ...state.resume, published: action.published },
+        etag: action.etag,
+        dirty: false,
+      };
     case 'updateScalar':
       return { ...state, resume: { ...state.resume, ...action.patch }, dirty: true };
     case 'addSection': {

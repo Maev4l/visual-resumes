@@ -22,12 +22,31 @@ const PublishModal = ({ resume, open, onOpenChange, onPublished, onRevoked }) =>
   const doPublish = async () => {
     setBusy(true);
     try {
-      const { data } = await api.publish(resume.id);
+      const { data, etag } = await api.publish(resume.id);
       setResult(data);
-      onPublished(data);
+      // Forward both data and etag so the parent can rotate `state.etag` —
+      // otherwise the post-publish autosave 412s on a stale etag.
+      onPublished({ data, etag });
       toast.success('Published');
     } catch (err) {
       toast.error(`Publish failed: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Same endpoint, different label/toast. The renderer Lambda is idempotent on
+  // the slug (see renderer/src/publish.test.js: "republish: reuses existing slug"),
+  // so this overwrites the live HTML/PDF + invalidates CloudFront in place.
+  const doRepublish = async () => {
+    setBusy(true);
+    try {
+      const { data, etag } = await api.publish(resume.id);
+      setResult(data);
+      onPublished({ data, etag });
+      toast.success('Updated');
+    } catch (err) {
+      toast.error(`Update failed: ${err.message}`);
     } finally {
       setBusy(false);
     }
@@ -130,16 +149,29 @@ const PublishModal = ({ resume, open, onOpenChange, onPublished, onRevoked }) =>
               {busy ? 'Publishing…' : 'Publish'}
             </Button>
           )}
+          {/* Already published: the primary action is "Update", with Unpublish demoted to a
+              secondary destructive ghost link. Mirrors the header's split — the chip handles
+              status / inspection, the primary button handles the forward action. */}
           {result && (
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={doUnpublish}
-              disabled={busy}
-              className="text-[var(--color-oxblood)]"
-            >
-              {busy ? 'Unpublishing…' : 'Unpublish'}
-            </Button>
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={doUnpublish}
+                disabled={busy}
+                className="text-[var(--color-oxblood)]"
+              >
+                {busy ? 'Working…' : 'Unpublish'}
+              </Button>
+              <Button
+                type="button"
+                onClick={doRepublish}
+                disabled={busy}
+                className="rounded-sm bg-[var(--color-ink)] hover:bg-[var(--color-ink-soft)] text-[var(--color-paper)]"
+              >
+                {busy ? 'Updating…' : 'Update published'}
+              </Button>
+            </>
           )}
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
         </DialogFooter>

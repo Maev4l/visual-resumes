@@ -10,9 +10,9 @@ const chromiumDisabled = () => process.env.RENDERER_DISABLE_CHROMIUM === '1';
 
 const fakeHtmlToPdfForTests = async (html) => Buffer.from(`PDF:${html.length}`);
 
-const response = (statusCode, bodyObject) => ({
+const response = (statusCode, bodyObject, extraHeaders = {}) => ({
   statusCode,
-  headers: { 'content-type': 'application/json; charset=utf-8' },
+  headers: { 'content-type': 'application/json; charset=utf-8', ...extraHeaders },
   body: JSON.stringify(bodyObject),
 });
 
@@ -52,7 +52,9 @@ export const handler = async (event) => {
       htmlToPdf,
     });
 
-    return response(200, out);
+    // WHY etag header: the editor reads it from response headers (matches put-resume's
+    // contract) to rotate `state.etag` after publish — without it the next autosave 412s.
+    return response(200, out, out.etag ? { etag: out.etag } : {});
   } catch (err) {
     if (err.code === 'Unauthorized') return error(401, 'Unauthorized', err.message);
     if (err.name === 'NotFound')     return error(404, 'NotFound', err.message);

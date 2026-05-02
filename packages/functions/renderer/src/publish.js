@@ -127,17 +127,25 @@ export const publish = async ({
   }));
 
   // Write `published` back onto the resume (conditional so concurrent editor saves are respected).
+  // WHY we capture+return the resulting ETag: the back-write rotates the resume-JSON's
+  // S3 ETag, so the editor's `state.etag` is otherwise stale on the very next autosave
+  // and every post-publish save 412s ("Your copy was stale — reloaded"). The renderer
+  // handler surfaces this as the `etag` HTTP response header (mirrors put-resume).
   const updated = { ...resume, published: { slug, publishedAt: new Date().toISOString() } };
+  let resumeEtag;
+  let conflict = false;
   try {
-    await s3Client.send(new PutObjectCommand({
+    const result = await s3Client.send(new PutObjectCommand({
       Bucket: storageBucket,
       Key: `users/${customId}/resumes/${resumeId}.json`,
       Body: JSON.stringify(updated),
       ContentType: 'application/json',
       IfMatch: etag,
     }));
+    resumeEtag = result.ETag;
   } catch (err) {
     if (err.name === 'PreconditionFailed') {
+      conflict = true;
       console.warn(`publish: concurrent edit on ${resumeId}; artifacts are live but back-write skipped. Client should refetch.`);
     } else {
       throw err;
@@ -153,7 +161,7 @@ export const publish = async ({
     },
   }));
 
-  return { slug, hasPhoto: Boolean(photoSrc) };
+  return { slug, hasPhoto: Boolean(photoSrc), etag: resumeEtag, conflict };
 };
 
 publish.NotFoundError = NotFoundError;

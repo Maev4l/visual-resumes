@@ -100,6 +100,46 @@ describe('publish', () => {
     assert.equal(out.slug, 'existingsslug');
   });
 
+  // WHY: the publish back-write rotates the resume-JSON's S3 ETag. If we don't
+  // surface the new value, the editor's `state.etag` stays stale and every
+  // post-publish autosave 412s with "Your copy was stale — reloaded".
+  it('returns the new etag from the resume-JSON back-write', async () => {
+    const existing = baseResume({ published: { slug: 'existingsslug', publishedAt: '2026-04-01T00:00:00.000Z' } });
+    s3.on(GetObjectCommand).resolves({ Body: bodyOf(JSON.stringify(existing)), ETag: '"old"' });
+    s3.on(PutObjectCommand).callsFake(async (cmd) => {
+      const { Bucket, Key } = cmd.input ?? cmd;
+      if (Bucket === 'visual-resumes-storage' && Key === 'users/U1/resumes/R1.json') {
+        return { ETag: '"resume-after-publish"' };
+      }
+      return {};
+    });
+    cf.on(CreateInvalidationCommand).resolves({});
+
+    const out = await runPublish();
+    assert.equal(out.etag, '"resume-after-publish"');
+    assert.equal(out.conflict, false);
+  });
+
+  it('flags conflict when the back-write 412s (concurrent edit during publish) and omits etag', async () => {
+    const existing = baseResume({ published: { slug: 'existingsslug', publishedAt: '2026-04-01T00:00:00.000Z' } });
+    s3.on(GetObjectCommand).resolves({ Body: bodyOf(JSON.stringify(existing)), ETag: '"old"' });
+    s3.on(PutObjectCommand).callsFake(async (cmd) => {
+      const { Bucket, Key } = cmd.input ?? cmd;
+      if (Bucket === 'visual-resumes-storage' && Key === 'users/U1/resumes/R1.json') {
+        const err = new Error('stale');
+        err.name = 'PreconditionFailed';
+        throw err;
+      }
+      return {};
+    });
+    cf.on(CreateInvalidationCommand).resolves({});
+
+    const out = await runPublish();
+    assert.equal(out.conflict, true);
+    assert.equal(out.etag, undefined);
+    assert.equal(out.slug, 'existingsslug');
+  });
+
   it('embeds the photo inline as a base64 data URI when photoKey is set; does NOT write a jpg to published', async () => {
     const webpBytes = Buffer.from([0xaa, 0xbb, 0xcc]);
     const resume = baseResume({ photoKey: 'users/U1/photos/R1.webp' });

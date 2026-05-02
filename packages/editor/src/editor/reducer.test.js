@@ -78,4 +78,23 @@ describe('editor reducer', () => {
     expect(s2.dirty).toBe(false);
     expect(s2.resume.title).toBe('FR');
   });
+
+  // WHY a dedicated action: publish back-writes both `published` AND rotates the
+  // S3 etag in a single server-side step. We must mirror that atomically — set
+  // `published`, rotate `etag`, and CLEAR dirty. Doing it as separate `saved` +
+  // `updateScalar` would leave the resume dirty and trigger a redundant autosave.
+  it('republished sets published, rotates etag, and clears dirty', () => {
+    const s0 = reducer(initialState, actions.hydrate({ resume: blank, etag: '"old"' }));
+    const dirty = reducer(s0, actions.updateScalar({ title: 'FR' }));
+    expect(dirty.dirty).toBe(true);
+    const s = reducer(dirty, actions.republished({
+      etag: '"after-publish"',
+      published: { slug: 'abc123', publishedAt: '2026-04-30T12:00:00.000Z' },
+    }));
+    expect(s.etag).toBe('"after-publish"');
+    expect(s.dirty).toBe(false);
+    expect(s.resume.published).toEqual({ slug: 'abc123', publishedAt: '2026-04-30T12:00:00.000Z' });
+    // Title edit is preserved — republished doesn't clobber unrelated fields.
+    expect(s.resume.title).toBe('FR');
+  });
 });
