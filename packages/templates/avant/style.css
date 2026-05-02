@@ -30,6 +30,10 @@ html, body { margin: 0; padding: 0; color: var(--text); font-family: var(--body-
   width: 130px;
   height: 130px;
   object-fit: cover;
+  /* WHY object-position: top — most headshots have the head near the top of the
+     frame, so a centred crop chops the crown. Anchoring to top sacrifices the
+     bottom (chest/shoulders) instead, which is acceptable for an avatar. */
+  object-position: center top;
   border: 5px double var(--white);
   border-radius: 50%;
 }

@@ -37,7 +37,8 @@ html, body { margin: 0; padding: 0; color: var(--text); font-family: var(--body-
    WHY display:flex + gap: emulates the mr1/ml1 "| " separator layout from the old JSS. */
 .contact { margin-bottom: 1.5em; }
 .contact-body { display: flex; gap: 20px; align-items: flex-start; }
-.contact .photo { width: 100px; height: 100px; object-fit: cover; border: 1px solid var(--gray); border-radius: 5px; }
+/* 100×133 = 3:4 portrait; object-position top keeps the head crown intact. */
+.contact .photo { width: 100px; height: 133px; object-fit: cover; object-position: center top; border: 1px solid var(--gray); border-radius: 5px; }
 .no-photo .contact .photo { display: none; }
 .contact-text { flex: 1; }
 .contact .name { color: var(--green); font-size: 250%; font-weight: 600; line-height: 1.2; margin: 0 0 0.15em; }

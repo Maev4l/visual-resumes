@@ -151,7 +151,9 @@ html, body { margin: 0; padding: 0; color: var(--text); font-family: var(--body-
 
 /* Coordinates block at the top of the sidebar — photo + two-column key/value rows. */
 .coordinates { padding: 10px; margin-bottom: 1.5em; }
-.coordinates .photo { width: 100%; max-width: 130px; aspect-ratio: 1; object-fit: cover; border: 1px solid #ddd; border-radius: 5px; display: block; margin: 0 auto 1em; }
+/* aspect-ratio 3/4 + object-position top: portrait framing for a headshot, anchored
+   so the crown of the head isn't cropped (chest is sacrificed instead). */
+.coordinates .photo { width: 100%; max-width: 130px; aspect-ratio: 3/4; object-fit: cover; object-position: center top; border: 1px solid #ddd; border-radius: 5px; display: block; margin: 0 auto 1em; }
 .no-photo .coordinates .photo { display: none; }
 .coord-row { display: flex; gap: 8px; margin-bottom: 4px; word-break: break-word; font-size: 95%; }
 .coord-row .label { font-weight: 600; color: var(--muted); min-width: 64px; }
