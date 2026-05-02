@@ -5,6 +5,30 @@ resource "aws_cloudfront_origin_access_control" "editor" {
   signing_protocol                  = "sigv4"
 }
 
+# WHY: S3 + OAC returns 403 (not 404) for missing keys, so SPA deep-links like
+# /preview/<id> or /edit/<id> on first load surfaced as raw S3 AccessDenied XML.
+# Rewriting at the edge — before S3 sees the request — is the canonical fix and
+# leaves /api/* and /resumes/* (their own behaviors) untouched.
+resource "aws_cloudfront_function" "spa_rewrite" {
+  name    = "visual-resumes-spa-rewrite"
+  runtime = "cloudfront-js-2.0"
+  comment = "Rewrite SPA deep-links to /index.html (S3+OAC 403 workaround)"
+  publish = true
+  code    = <<-EOT
+    function handler(event) {
+      var req = event.request;
+      var uri = req.uri;
+      // Heuristic: real files have a dot in the last path segment
+      // (/assets/foo.js, /favicon.svg). Everything else is a SPA route.
+      var last = uri.substring(uri.lastIndexOf('/') + 1);
+      if (last === '' || last.indexOf('.') === -1) {
+        req.uri = '/index.html';
+      }
+      return req;
+    }
+  EOT
+}
+
 resource "aws_cloudfront_origin_access_control" "published" {
   name                              = "visual-resumes-published-oac"
   origin_access_control_origin_type = "s3"
@@ -59,6 +83,12 @@ resource "aws_cloudfront_distribution" "app" {
     viewer_protocol_policy = "redirect-to-https"
     compress               = true
     cache_policy_id        = data.aws_cloudfront_cache_policy.caching_optimized.id
+
+    # Attached only here so /api/* and /resumes/* behaviors stay untouched.
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.spa_rewrite.arn
+    }
   }
 
   # /resumes/* → S3 published prefix (long cache)

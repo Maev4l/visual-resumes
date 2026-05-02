@@ -6,7 +6,7 @@
 
 **Goal:** Provision the full AWS footprint for `visual-resumes.isnan.eu` (3 S3 buckets, single CloudFront distribution, API Gateway with JWT auth, 3 Lambda functions with hello-world stubs, ECR, IAM) plus the monorepo skeleton (root `package.json`, `.gitignore`, docs). At the end of this plan: the domain resolves, the SPA origin serves a placeholder `index.html`, all three Lambdas return a 200 from their stubs, and hitting `/api/*` without a token returns 401.
 
-**Architecture:** One CloudFront distribution with path-routed behaviors (editor default, `/resumes/*`, `/api/*`) and a 404 → `/index.html` fallback for SPA routing. The `api` Lambda is zip-packaged; `renderer` and `image-resizer` are container images from ECR. API Gateway uses `terraform-modules/lambda-trigger-apigw` (post-Plan-0b rewrite). Cognito authorization reuses the shared `platform-idp` pool — the `resumes` app client is registered in `platform/idp` (Plan 0a) and discovered here via the established `platform.idp.app-clients` SSM map.
+**Architecture:** One CloudFront distribution with path-routed behaviors (editor default, `/resumes/*`, `/api/*`). SPA deep-link routing is handled by a CloudFront Function (viewer-request) attached to the default behavior that rewrites any path whose last segment has no `.` to `/index.html`; the 404 → `/index.html` `custom_error_response` is retained as a belt-and-braces fallback. The `api` Lambda is zip-packaged; `renderer` and `image-resizer` are container images from ECR. API Gateway uses `terraform-modules/lambda-trigger-apigw` (post-Plan-0b rewrite). Cognito authorization reuses the shared `platform-idp` pool — the `resumes` app client is registered in `platform/idp` (Plan 0a) and discovered here via the established `platform.idp.app-clients` SSM map.
 
 **Tech Stack:** Terraform `>= 1.10.0`, AWS provider `~> 6.0` (two aliases: `eu-central-1` default + `us-east-1` for CloudFront-related lookups), Node.js 22 stub Lambdas, Docker for ECR stubs, `terraform-modules` via GitHub source.
 
@@ -30,7 +30,7 @@ Every Terraform-managed project in this account follows these conventions; this 
 - Default tags `{ application = "<app>", owner = "terraform" }`
 - Wildcard ACM data source (`*.isnan.eu` in `us-east-1`)
 - `data.aws_cognito_user_pools { name = "platform-idp" }` + `platform.idp.app-clients` SSM lookup for Cognito wiring
-- CloudFront SPA fallback maps **404 only** (not 403 — 403 masks API Gateway auth errors)
+- CloudFront SPA routing: viewer-request CF Function rewrites extension-less paths to `/index.html` (attached to default behavior only — `/api/*` and `/resumes/*` untouched). `custom_error_response` maps **404 only** (not 403 — 403 would mask API Gateway auth errors)
 
 ---
 
@@ -1109,6 +1109,30 @@ resource "aws_cloudfront_origin_access_control" "editor" {
   signing_protocol                  = "sigv4"
 }
 
+# WHY: S3 + OAC returns 403 (not 404) for missing keys, so SPA deep-links like
+# /preview/<id> or /edit/<id> on first load surface as raw S3 AccessDenied XML.
+# Rewriting at the edge — before S3 sees the request — is the canonical fix and
+# leaves /api/* and /resumes/* (their own behaviors) untouched.
+resource "aws_cloudfront_function" "spa_rewrite" {
+  name    = "visual-resumes-spa-rewrite"
+  runtime = "cloudfront-js-2.0"
+  comment = "Rewrite SPA deep-links to /index.html (S3+OAC 403 workaround)"
+  publish = true
+  code    = <<-EOT
+    function handler(event) {
+      var req = event.request;
+      var uri = req.uri;
+      // Heuristic: real files have a dot in the last path segment
+      // (/assets/foo.js, /favicon.svg). Everything else is a SPA route.
+      var last = uri.substring(uri.lastIndexOf('/') + 1);
+      if (last === '' || last.indexOf('.') === -1) {
+        req.uri = '/index.html';
+      }
+      return req;
+    }
+  EOT
+}
+
 resource "aws_cloudfront_origin_access_control" "published" {
   name                              = "visual-resumes-published-oac"
   origin_access_control_origin_type = "s3"
@@ -1163,6 +1187,12 @@ resource "aws_cloudfront_distribution" "app" {
     viewer_protocol_policy = "redirect-to-https"
     compress               = true
     cache_policy_id        = data.aws_cloudfront_cache_policy.caching_optimized.id
+
+    # Attached only here so /api/* and /resumes/* behaviors stay untouched.
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.spa_rewrite.arn
+    }
   }
 
   # /resumes/* → S3 published prefix (long cache)
@@ -1188,7 +1218,8 @@ resource "aws_cloudfront_distribution" "app" {
     origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
   }
 
-  # SPA fallback — 404 only. Do NOT add 403: it would mask API Gateway auth errors.
+  # SPA fallback — 404 only, kept as belt-and-braces alongside the CF Function
+  # rewrite. Do NOT add 403: it would mask API Gateway auth errors.
   custom_error_response {
     error_code         = 404
     response_code      = 200
@@ -1592,7 +1623,7 @@ aws lambda invoke --function-name visual-resumes-api /tmp/out.json && cat /tmp/o
 
 Re-read `docs/superpowers/specs/2026-04-18-visual-cv-design.md` sections "Architecture", "Domains & routing", "Infrastructure", "Identity & authorization". Confirm:
 - [ ] 3 S3 buckets + public access blocks
-- [ ] CloudFront with 3 behaviors (default editor, `/resumes/*`, `/api/*`) and 404-only SPA fallback
+- [ ] CloudFront with 3 behaviors (default editor, `/resumes/*`, `/api/*`), CF Function `spa_rewrite` attached to default behavior, and 404-only `custom_error_response` retained as belt-and-braces
 - [ ] OAC on editor + published
 - [ ] Storage bucket CORS for presigned photo upload
 - [ ] ACM wildcard via data source

@@ -58,7 +58,7 @@ Single CloudFront distribution on `visual-resumes.isnan.eu` with four behaviors:
 |---|---|---|---|
 | `/api/*` | API Gateway (execute-api URL) | Disabled | Forwards `Authorization`; managed origin request policy `AllViewerExceptHostHeader` |
 | `/resumes/*` | S3 `resumes-published` (OAC) | Long (1y), immutable on slug | No JS required to view |
-| `/*` (default) | S3 `resumes-editor` (OAC) | Per-object `Cache-Control` (hashed assets immutable, `index.html` `no-cache`) | 403/404 → `/index.html` 200 for client-side routing — handles `/auth/callback`, `/edit/{id}`, etc. |
+| `/*` (default) | S3 `resumes-editor` (OAC) | Per-object `Cache-Control` (hashed assets immutable, `index.html` `no-cache`) | CloudFront Function (viewer-request) rewrites any path whose last segment has no `.` to `/index.html` so SPA deep-links (`/edit/{id}`, `/preview/{id}`, …) work. 404 fallback retained as belt-and-braces. **403 must NOT be mapped** — it would mask API Gateway auth errors. |
 
 ## Identity & authorization
 
