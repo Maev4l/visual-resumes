@@ -1,14 +1,15 @@
 <!doctype html>
-<html lang="en" class="no-photo">
+<html lang="en"{{#unless _photoVisible}} class="no-photo"{{/unless}}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>{{title}}</title>
     <!-- CSS_PLACEHOLDER -->
     <script>
-      // Photo is hidden by default (class="no-photo" on <html>). `?picture=true` in the URL
-      // reveals it — so sharing the bare URL gives a photo-less version and the author opts
-      // in to a photo-bearing variant by appending the query string.
+      // Published HTML emits class="no-photo" (set server-side via _photoVisible=false).
+      // `?picture=true` opts in — the bare URL stays photo-less for sharing. Editor preview
+      // renders with _photoVisible=true so the class is omitted directly (srcDoc iframes
+      // have no query string for this script to read).
       (() => {
         try {
           const p = new URLSearchParams(location.search);

@@ -1,12 +1,14 @@
 <!doctype html>
-<html lang="en" class="no-photo">
+<html lang="en"{{#unless _photoVisible}} class="no-photo"{{/unless}}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>{{title}}</title>
     <!-- CSS_PLACEHOLDER -->
     <script>
-      // Photo hidden by default (class="no-photo" on <html>). `?picture=true` reveals it.
+      // Published HTML emits class="no-photo" (set server-side via _photoVisible=false).
+      // `?picture=true` opts in. Editor preview renders with _photoVisible=true so the
+      // class is omitted directly — needed because srcDoc iframes have no query string.
       (() => {
         try {
           const p = new URLSearchParams(location.search);

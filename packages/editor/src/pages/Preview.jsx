@@ -80,7 +80,15 @@ const Preview = () => {
 
   let html;
   try {
-    html = renderPreviewHtml({ ...resume, _photoSrc: showPhoto ? (photoDataUri ?? null) : null });
+    // _photoVisible drives the `no-photo` class server-side because the published
+    // HTML's runtime `?picture=true` toggle can't fire inside a srcDoc iframe
+    // (location is `about:srcdoc`). Renderer Lambda omits this flag, so published
+    // HTML retains the privacy-by-default class as before.
+    html = renderPreviewHtml({
+      ...resume,
+      _photoSrc: showPhoto ? (photoDataUri ?? null) : null,
+      _photoVisible: showPhoto,
+    });
   } catch (err) {
     html = `<!doctype html><body style="font-family:ui-monospace,monospace;padding:1rem;color:#7A1F1F"><pre>${err.message}</pre></body>`;
   }
