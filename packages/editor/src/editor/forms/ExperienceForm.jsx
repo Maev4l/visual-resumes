@@ -23,7 +23,7 @@ const ExperienceForm = ({ data, onChange }) => {
   const list = Array.isArray(data) ? data : [];
   const patch = (i, p) => onChange(list.map((e, idx) => (idx === i ? { ...e, ...p } : e)));
   const add = () => onChange([...list, {
-    company: '', role: '', location: '', startDate: '', endDate: '', current: false, body: '',
+    company: '', role: '', location: '', startDate: '', endDate: '', current: false, body: '', pageBreakBefore: false,
   }]);
   const remove = (i) => onChange(list.filter((_, idx) => idx !== i));
   const move = (i, dir) => {
@@ -48,6 +48,20 @@ const ExperienceForm = ({ data, onChange }) => {
                 onClick={() => remove(i)} className="text-[var(--color-oxblood)]"><X className="size-4" /></Button>
             </div>
           </div>
+
+          {/* Hidden on entry 1: a break before the first entry overlaps with the
+              section-level pageBreakBefore (the heading sits between any preceding
+              content and the first entry), so exposing both creates two ways to
+              spell the same intent. Same component pattern as SectionList.jsx:58-67. */}
+          {i > 0 && (
+            <Label className="flex items-center gap-2 font-meta">
+              <Checkbox
+                checked={entry.pageBreakBefore ?? false}
+                onCheckedChange={(v) => patch(i, { pageBreakBefore: Boolean(v) })}
+              />
+              Page break before
+            </Label>
+          )}
 
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="flex flex-col gap-1.5">

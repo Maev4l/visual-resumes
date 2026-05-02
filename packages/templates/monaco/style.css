@@ -90,6 +90,11 @@ html, body { margin: 0; padding: 0; color: var(--text); font-family: var(--body-
 .cert-list li { margin: 0.2em 0; }
 
 a { color: inherit; text-decoration: underline; }
-.page-break { break-before: always; }
+/* WHY display:block + page + page-break-before: Chromium's paged-media engine
+   silently ignores `break-before: always` on an empty marker div. The robust
+   pattern combines the explicit `page` keyword (CSS3), the legacy
+   `page-break-before: always` alias (CSS 2.1), and an explicit display so the
+   empty box can't be collapsed during pagination. */
+.page-break { display: block; break-before: page; page-break-before: always; }
 
 @page { size: A4; margin: 14mm; }
