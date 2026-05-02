@@ -3,7 +3,7 @@
 // ink border and the oxblood "Selected" chip. Inputs sit on the canvas without
 // shadcn Card chrome.
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ArrowLeft } from 'lucide-react';
 
@@ -20,7 +20,12 @@ import PaperCard from '@/components/editorial/PaperCard';
 
 const New = () => {
   const navigate = useNavigate();
-  const [templateId, setTemplateId] = useState('monaco');
+  const [searchParams] = useSearchParams();
+  // Honour the gallery's "Use this template" hand-off. Falls back to monaco if
+  // the param is absent or names a template we no longer ship.
+  const requested = searchParams.get('templateId');
+  const initialTemplateId = requested && TEMPLATES[requested] ? requested : 'monaco';
+  const [templateId, setTemplateId] = useState(initialTemplateId);
   const [title, setTitle] = useState('');
   const [paperSize, setPaperSize] = useState('A4');
   const [busy, setBusy] = useState(false);
@@ -40,9 +45,14 @@ const New = () => {
 
   return (
     <Page width="standard">
-      <Button variant="ghost" size="sm" asChild className="mb-6 -ml-2 text-[var(--color-ink-faint)]">
-        <Link to="/"><ArrowLeft className="size-4" /> Shelf</Link>
-      </Button>
+      {/* WHY a wrapping <div>: Button is `inline-flex`, MetaChip's <span> is also
+          inline-level, so without a block-level container they share the same line
+          (Button's `mb-6` doesn't push inline siblings to a new row). */}
+      <div className="mb-6">
+        <Button variant="ghost" size="sm" asChild className="-ml-2 text-[var(--color-ink-faint)]">
+          <Link to="/"><ArrowLeft className="size-4" /> Shelf</Link>
+        </Button>
+      </div>
 
       <MetaChip className="mb-3">New document</MetaChip>
       <h1 className="font-serif text-4xl font-light text-[var(--color-ink)]">

@@ -12,6 +12,7 @@ import New from '@/pages/New';
 import Edit from '@/pages/Edit';
 import Pending from '@/pages/Pending';
 import NotFound from '@/pages/NotFound';
+import Templates from '@/pages/Templates';
 
 // Preview is the only route that pulls in handlebars + markdown-it (via the
 // shared renderer). Lazy-loading keeps those ~300 kB out of the main bundle —
@@ -28,6 +29,7 @@ const App = () => (
         <Route path="/new"         element={<RequireAuth><New /></RequireAuth>} />
         <Route path="/edit/:id"    element={<RequireAuth><Edit /></RequireAuth>} />
         <Route path="/preview/:id" element={<RequireAuth><Preview /></RequireAuth>} />
+        <Route path="/templates"   element={<RequireAuth><Templates /></RequireAuth>} />
         <Route path="*"            element={<NotFound />} />
       </Routes>
     </Suspense>

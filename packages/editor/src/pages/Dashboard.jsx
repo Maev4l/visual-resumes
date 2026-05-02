@@ -92,6 +92,9 @@ const Dashboard = () => {
           <Button asChild className="rounded-sm bg-[var(--color-ink)] hover:bg-[var(--color-ink-soft)] text-[var(--color-paper)]">
             <Link to="/new"><Plus className="size-4" /> New resume</Link>
           </Button>
+          <Button variant="ghost" asChild className="text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]">
+            <Link to="/templates">Browse templates</Link>
+          </Button>
           <Button variant="ghost" onClick={logout} className="text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]">
             Sign out
           </Button>
