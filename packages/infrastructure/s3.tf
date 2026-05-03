@@ -14,6 +14,8 @@ locals {
 # ----- Editor bucket (Vite build output; CloudFront-fronted via OAC; default behavior) -----
 resource "aws_s3_bucket" "editor" {
   bucket = local.bucket_editor
+  # Allow `terraform destroy` to remove the bucket even when objects remain.
+  force_destroy = true
 }
 
 resource "aws_s3_bucket_public_access_block" "editor" {
@@ -27,6 +29,8 @@ resource "aws_s3_bucket_public_access_block" "editor" {
 # ----- Storage bucket (IAM-only; everything the app needs to run) -----
 resource "aws_s3_bucket" "storage" {
   bucket = local.bucket_storage
+  # Allow `terraform destroy` to remove the bucket even when objects remain.
+  force_destroy = true
 }
 
 resource "aws_s3_bucket_public_access_block" "storage" {
@@ -75,6 +79,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "storage" {
 # ----- Published bucket (rendered resume artifacts; CloudFront-fronted via OAC; /resumes/* behavior) -----
 resource "aws_s3_bucket" "published" {
   bucket = local.bucket_published
+  # Allow `terraform destroy` to remove the bucket even when objects remain.
+  force_destroy = true
 }
 
 resource "aws_s3_bucket_public_access_block" "published" {

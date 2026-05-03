@@ -1,12 +1,16 @@
 resource "aws_ecr_repository" "renderer" {
   name                 = "visual-resumes-renderer"
   image_tag_mutability = "MUTABLE"
+  # Allow `terraform destroy` to remove the repository even when images remain.
+  force_delete         = true
   image_scanning_configuration { scan_on_push = true }
 }
 
 resource "aws_ecr_repository" "image_resizer" {
   name                 = "visual-resumes-image-resizer"
   image_tag_mutability = "MUTABLE"
+  # Allow `terraform destroy` to remove the repository even when images remain.
+  force_delete         = true
   image_scanning_configuration { scan_on_push = true }
 }
 
