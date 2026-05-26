@@ -1,24 +1,21 @@
 // DELETE /api/resumes/{id} — if the resume was published, also deletes artifacts +
 // invalidates CloudFront before removing the source-of-truth JSON.
-import { noContent, error } from '../lib/http.js';
-import { extractUser } from '../lib/auth.js';
 import { getResume, deleteResumeObjects } from '../lib/storage-private.js';
 import { revokePublished } from '../lib/storage-published.js';
 import { config } from '../config.js';
 
-export const deleteResumeRoute = async (event) => {
-  const user = extractUser(event);
-  const resumeId = event.pathParameters?.id;
-  if (!resumeId) return error(400, 'BadRequest', 'missing id path parameter');
+export const deleteResumeRoute = async (c) => {
+  const customId = c.get('customId');
+  const resumeId = c.req.param('id');
 
   const got = await getResume({
     bucket: config.storageBucket,
-    customId: user.customId,
+    customId,
     resumeId,
   });
-  if (!got) return error(404, 'NotFound', `resume ${resumeId} not found`);
-  if (got.resume.ownerCustomId !== user.customId) {
-    return error(403, 'Forbidden', 'not your resume');
+  if (!got) return c.json({ error: 'NotFound', message: `resume ${resumeId} not found` }, 404);
+  if (got.resume.ownerCustomId !== customId) {
+    return c.json({ error: 'Forbidden', message: 'not your resume' }, 403);
   }
 
   // WHY revoke first (before deleting the JSON): if revoke fails, the JSON remains so
@@ -34,9 +31,9 @@ export const deleteResumeRoute = async (event) => {
 
   await deleteResumeObjects({
     bucket: config.storageBucket,
-    customId: user.customId,
+    customId,
     resumeId,
   });
 
-  return noContent();
+  return c.body(null, 204);
 };

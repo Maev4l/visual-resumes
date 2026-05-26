@@ -2,7 +2,7 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mockClient } from 'aws-sdk-client-mock';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
-import { getResumeRoute } from './get-resume.js';
+import { callWithUser } from '../test-helpers.js';
 
 const s3 = mockClient(S3Client);
 beforeEach(() => {
@@ -12,10 +12,7 @@ beforeEach(() => {
   process.env.CLOUDFRONT_DIST_ID = 'DIST';
 });
 
-const evt = (resumeId) => ({
-  requestContext: { authorizer: { jwt: { claims: { 'custom:Id': 'U1' } } } },
-  pathParameters: { id: resumeId },
-});
+const get = (id) => callWithUser(`/api/resumes/${id}`);
 
 describe('GET /api/resumes/{id}', () => {
   it('returns { resume, etag, photoDataUri: null } when the resume has no photo', async () => {
@@ -23,10 +20,10 @@ describe('GET /api/resumes/{id}', () => {
       Body: { transformToString: async () => JSON.stringify({ id: 'R1', ownerCustomId: 'U1', title: 'A', templateId: 'monaco', paperSize: 'A4', sections: [], photoKey: null }) },
       ETag: '"abc"',
     });
-    const res = await getResumeRoute(evt('R1'));
-    assert.equal(res.statusCode, 200);
-    assert.equal(res.headers.etag, '"abc"');
-    const body = JSON.parse(res.body);
+    const res = await get('R1');
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('etag'), '"abc"');
+    const body = await res.json();
     assert.equal(body.resume.id, 'R1');
     assert.equal(body.etag, '"abc"');
     assert.equal(body.photoDataUri, null);
@@ -41,8 +38,9 @@ describe('GET /api/resumes/{id}', () => {
     s3.on(GetObjectCommand, { Key: 'users/U1/photos/R1.webp' }).resolves({
       Body: { transformToByteArray: async () => new Uint8Array(pixel) },
     });
-    const res = await getResumeRoute(evt('R1'));
-    assert.equal(JSON.parse(res.body).photoDataUri, `data:image/webp;base64,${pixel.toString('base64')}`);
+    const res = await get('R1');
+    const body = await res.json();
+    assert.equal(body.photoDataUri, `data:image/webp;base64,${pixel.toString('base64')}`);
   });
 
   it('returns photoDataUri: null when photoKey is set but the file is not ready yet (upload race)', async () => {
@@ -51,14 +49,15 @@ describe('GET /api/resumes/{id}', () => {
       ETag: '"abc"',
     });
     s3.on(GetObjectCommand, { Key: 'users/U1/photos/R1.webp' }).rejects(Object.assign(new Error('no'), { name: 'NoSuchKey' }));
-    const res = await getResumeRoute(evt('R1'));
-    assert.equal(JSON.parse(res.body).photoDataUri, null);
+    const res = await get('R1');
+    const body = await res.json();
+    assert.equal(body.photoDataUri, null);
   });
 
   it('returns 404 when the resume itself is missing', async () => {
     s3.on(GetObjectCommand).rejects(Object.assign(new Error('no'), { name: 'NoSuchKey' }));
-    const res = await getResumeRoute(evt('R404'));
-    assert.equal(res.statusCode, 404);
+    const res = await get('R404');
+    assert.equal(res.status, 404);
   });
 
   it('returns 403 when ownerCustomId does not match caller', async () => {
@@ -66,7 +65,7 @@ describe('GET /api/resumes/{id}', () => {
       Body: { transformToString: async () => JSON.stringify({ id: 'R1', ownerCustomId: 'OTHER', title: 'A', templateId: 'monaco', paperSize: 'A4', sections: [], photoKey: null }) },
       ETag: '"x"',
     });
-    const res = await getResumeRoute(evt('R1'));
-    assert.equal(res.statusCode, 403);
+    const res = await get('R1');
+    assert.equal(res.status, 403);
   });
 });

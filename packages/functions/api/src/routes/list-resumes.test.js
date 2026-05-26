@@ -2,7 +2,7 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mockClient } from 'aws-sdk-client-mock';
 import { S3Client, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
-import { listResumes } from './list-resumes.js';
+import { callWithUser } from '../test-helpers.js';
 
 const s3 = mockClient(S3Client);
 beforeEach(() => {
@@ -10,10 +10,6 @@ beforeEach(() => {
   process.env.RESUMES_STORAGE_BUCKET = 'visual-resumes-storage';
   process.env.RESUMES_PUBLISHED_BUCKET = 'visual-resumes-published';
   process.env.CLOUDFRONT_DIST_ID = 'DIST';
-});
-
-const evt = (claims = { 'custom:Id': 'U1' }) => ({
-  requestContext: { authorizer: { jwt: { claims } } },
 });
 
 describe('GET /api/resumes', () => {
@@ -30,9 +26,9 @@ describe('GET /api/resumes', () => {
       LastModified: new Date('2026-04-18T10:00:00Z'),
     });
 
-    const res = await listResumes(evt());
-    assert.equal(res.statusCode, 200);
-    const body = JSON.parse(res.body);
+    const res = await callWithUser('/api/resumes');
+    assert.equal(res.status, 200);
+    const body = await res.json();
     assert.equal(body.resumes.length, 1);
     const row = body.resumes[0];
     assert.equal(row.id, 'R1');

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mockClient } from 'aws-sdk-client-mock';
 import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { CloudFrontClient, CreateInvalidationCommand } from '@aws-sdk/client-cloudfront';
-import { revokeRoute } from './revoke.js';
+import { callWithUser } from '../test-helpers.js';
 
 const s3 = mockClient(S3Client);
 const cf = mockClient(CloudFrontClient);
@@ -15,10 +15,7 @@ beforeEach(() => {
   process.env.CLOUDFRONT_DIST_ID = 'DIST';
 });
 
-const evt = () => ({
-  requestContext: { authorizer: { jwt: { claims: { 'custom:Id': 'U1' } } } },
-  pathParameters: { id: 'R1' },
-});
+const revoke = () => callWithUser('/api/resumes/R1/revoke', { method: 'POST' });
 
 describe('POST /api/resumes/{id}/revoke', () => {
   it('204 on revoke of a published resume (deletes artifacts + invalidates + sets published=null)', async () => {
@@ -30,8 +27,8 @@ describe('POST /api/resumes/{id}/revoke', () => {
     s3.on(PutObjectCommand).resolves({ ETag: '"e2"' });
     cf.on(CreateInvalidationCommand).resolves({});
 
-    const res = await revokeRoute(evt());
-    assert.equal(res.statusCode, 204);
+    const res = await revoke();
+    assert.equal(res.status, 204);
     assert.equal(s3.commandCalls(DeleteObjectCommand).length, 3);
     assert.equal(cf.commandCalls(CreateInvalidationCommand).length, 1);
 
@@ -46,13 +43,13 @@ describe('POST /api/resumes/{id}/revoke', () => {
       Body: { transformToString: async () => JSON.stringify({ id: 'R1', ownerCustomId: 'U1', title: 'A', templateId: 'monaco', paperSize: 'A4', sections: [], published: null }) },
       ETag: '"e"',
     });
-    const res = await revokeRoute(evt());
-    assert.equal(res.statusCode, 409);
+    const res = await revoke();
+    assert.equal(res.status, 409);
   });
 
   it('404 when resume does not exist', async () => {
     s3.on(GetObjectCommand).rejects(Object.assign(new Error('no'), { name: 'NoSuchKey' }));
-    const res = await revokeRoute(evt());
-    assert.equal(res.statusCode, 404);
+    const res = await revoke();
+    assert.equal(res.status, 404);
   });
 });

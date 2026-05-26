@@ -2,16 +2,31 @@
 # Order: api, renderer, image-resizer (each with its trigger directly beneath),
 # then the shared API Gateway covering `api` + `renderer` routes.
 
-# ----- api Lambda (zip) -----
+locals {
+  # AWS Lambda Web Adapter (arm64) — release notes:
+  # https://github.com/aws/aws-lambda-web-adapter/releases
+  # Attached as a layer to the api Lambda; the renderer copies the same adapter binary
+  # in via its Dockerfile (see renderer/Dockerfile ARG LWA_VERSION).
+  lwa_layer_version = 27
+  lwa_layer_arn     = "arn:aws:lambda:${var.region}:753240598075:layer:LambdaAdapterLayerArm64:${local.lwa_layer_version}"
+}
+
+# ----- api Lambda (zip + LWA layer) -----
 
 module "api" {
   source        = "github.com/Maev4l/terraform-modules//modules/lambda-function?ref=v1.7.0"
   function_name = "visual-resumes-api"
 
+  # LWA's extension intercepts the Lambda runtime API and forwards events as HTTP
+  # requests to PORT — the Hono app listens there via @hono/node-server.
+  layers = [local.lwa_layer_arn]
+
   zip = {
     filename = "${path.module}/../functions/api/dist/api.zip"
     runtime  = "nodejs22.x"
-    handler  = "index.handler"
+    # AWS_LAMBDA_EXEC_WRAPPER redirects managed-runtime startup to LWA's /opt/bootstrap,
+    # which then execs this handler value as a shell command. run.sh just `exec node index.js`.
+    handler = "run.sh"
     # Hash the bundled output, NOT the zip — zip metadata (entry timestamps) isn't stable across rebuilds.
     hash = filebase64sha256("${path.module}/../functions/api/bin/index.js")
   }
@@ -25,6 +40,10 @@ module "api" {
     RESUMES_STORAGE_BUCKET   = local.bucket_storage
     RESUMES_PUBLISHED_BUCKET = local.bucket_published
     CLOUDFRONT_DIST_ID       = aws_cloudfront_distribution.app.id
+
+    AWS_LAMBDA_EXEC_WRAPPER = "/opt/bootstrap"
+    PORT                    = "8080"
+    AWS_LWA_INVOKE_MODE     = "buffered"
   }
 
   additional_policy_arns = [aws_iam_policy.api.arn]
@@ -58,6 +77,11 @@ module "renderer" {
     RESUMES_STORAGE_BUCKET   = local.bucket_storage
     RESUMES_PUBLISHED_BUCKET = local.bucket_published
     CLOUDFRONT_DIST_ID       = aws_cloudfront_distribution.app.id
+
+    # LWA binary is copied into /opt/extensions/ by the Dockerfile; it forwards events
+    # as HTTP requests to PORT, where the Hono app listens via @hono/node-server.
+    PORT                = "8080"
+    AWS_LWA_INVOKE_MODE = "buffered"
   }
 
   additional_policy_arns = [aws_iam_policy.renderer.arn]

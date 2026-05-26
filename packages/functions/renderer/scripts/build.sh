@@ -11,7 +11,7 @@ rm -rf "$DIR/bin"
 mkdir -p "$DIR/bin"
 
 "$FUNCTIONS_ROOT/node_modules/.bin/esbuild" \
-  "$DIR/src/index.js" \
+  "$DIR/src/server.js" \
   --bundle \
   --platform=node \
   --target=node22 \

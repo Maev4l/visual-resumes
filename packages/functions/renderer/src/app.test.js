@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 // Fix TEMPLATES_DIR to a known layout before import.
-const tmpTplRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vr-index-'));
+const tmpTplRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vr-renderer-'));
 fs.mkdirSync(path.join(tmpTplRoot, 'monaco'), { recursive: true });
 fs.writeFileSync(path.join(tmpTplRoot, 'monaco/template.hbs'), `<!doctype html><html><head><!-- CSS_PLACEHOLDER --></head><body>{{title}}</body></html>`);
 fs.writeFileSync(path.join(tmpTplRoot, 'monaco/style.css'), `body{}`);
@@ -23,7 +23,8 @@ process.env.RENDERER_DISABLE_CHROMIUM = '1';
 const s3 = mockClient(S3Client);
 const cf = mockClient(CloudFrontClient);
 
-const { handler } = await import('./index.js');
+// Dynamic import preserves the env-then-import order from the old test (app.js → publish.js → browser.js).
+const { callWithUser, callAnon } = await import('./test-helpers.js');
 
 beforeEach(() => { s3.reset(); cf.reset(); });
 
@@ -32,14 +33,10 @@ const resume = () => ({
   photoKey: null, sections: [], published: null,
 });
 
-const evt = (over = {}) => ({
-  routeKey: 'POST /api/resumes/{id}/publish',
-  pathParameters: { id: 'R1' },
-  requestContext: { authorizer: { jwt: { claims: { 'custom:Id': 'U1' } } } },
-  ...over,
-});
+const publish = (customId) =>
+  callWithUser('/api/resumes/R1/publish', { method: 'POST' }, customId);
 
-describe('renderer handler', () => {
+describe('renderer app', () => {
   it('200 on successful publish, returns slug + hasPhoto', async () => {
     s3.on(GetObjectCommand).resolves({
       Body: { transformToString: async () => JSON.stringify(resume()) },
@@ -48,9 +45,9 @@ describe('renderer handler', () => {
     s3.on(PutObjectCommand).resolves({});
     cf.on(CreateInvalidationCommand).resolves({});
 
-    const res = await handler(evt());
-    assert.equal(res.statusCode, 200);
-    const body = JSON.parse(res.body);
+    const res = await publish();
+    assert.equal(res.status, 200);
+    const body = await res.json();
     assert.match(body.slug, /^[0-9a-z]{12}$/);
     assert.equal(body.hasPhoto, false);
   });
@@ -72,22 +69,22 @@ describe('renderer handler', () => {
     });
     cf.on(CreateInvalidationCommand).resolves({});
 
-    const res = await handler(evt());
-    assert.equal(res.statusCode, 200);
-    assert.equal(res.headers.etag, '"resume-after-publish"');
-    const body = JSON.parse(res.body);
+    const res = await publish();
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('etag'), '"resume-after-publish"');
+    const body = await res.json();
     assert.equal(body.etag, '"resume-after-publish"');
   });
 
   it('401 when JWT claim is missing', async () => {
-    const res = await handler({ ...evt(), requestContext: {} });
-    assert.equal(res.statusCode, 401);
+    const res = await callAnon('/api/resumes/R1/publish', { method: 'POST' });
+    assert.equal(res.status, 401);
   });
 
   it('404 when resume does not exist', async () => {
     s3.on(GetObjectCommand).rejects(Object.assign(new Error('no'), { name: 'NoSuchKey' }));
-    const res = await handler(evt());
-    assert.equal(res.statusCode, 404);
+    const res = await publish();
+    assert.equal(res.status, 404);
   });
 
   it('403 when resume ownerCustomId does not match caller', async () => {
@@ -95,7 +92,7 @@ describe('renderer handler', () => {
       Body: { transformToString: async () => JSON.stringify({ ...resume(), ownerCustomId: 'OTHER' }) },
       ETag: '"e"',
     });
-    const res = await handler(evt());
-    assert.equal(res.statusCode, 403);
+    const res = await publish();
+    assert.equal(res.status, 403);
   });
 });

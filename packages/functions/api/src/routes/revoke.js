@@ -1,27 +1,24 @@
 // POST /api/resumes/{id}/revoke — deletes published artifacts + invalidates CF, then
 // writes published=null conditionally so we don't clobber a concurrent editor save.
-import { noContent, error } from '../lib/http.js';
-import { extractUser } from '../lib/auth.js';
 import { getResume, putResumeConditional } from '../lib/storage-private.js';
 import { revokePublished } from '../lib/storage-published.js';
 import { config } from '../config.js';
 
-export const revokeRoute = async (event) => {
-  const user = extractUser(event);
-  const resumeId = event.pathParameters?.id;
-  if (!resumeId) return error(400, 'BadRequest', 'missing id path parameter');
+export const revokeRoute = async (c) => {
+  const customId = c.get('customId');
+  const resumeId = c.req.param('id');
 
   const got = await getResume({
     bucket: config.storageBucket,
-    customId: user.customId,
+    customId,
     resumeId,
   });
-  if (!got) return error(404, 'NotFound', `resume ${resumeId} not found`);
-  if (got.resume.ownerCustomId !== user.customId) {
-    return error(403, 'Forbidden', 'not your resume');
+  if (!got) return c.json({ error: 'NotFound', message: `resume ${resumeId} not found` }, 404);
+  if (got.resume.ownerCustomId !== customId) {
+    return c.json({ error: 'Forbidden', message: 'not your resume' }, 403);
   }
   if (!got.resume.published?.slug) {
-    return error(409, 'NotPublished', 'resume is not currently published');
+    return c.json({ error: 'NotPublished', message: 'resume is not currently published' }, 409);
   }
 
   await revokePublished({
@@ -34,7 +31,7 @@ export const revokeRoute = async (event) => {
   try {
     await putResumeConditional({
       bucket: config.storageBucket,
-      customId: user.customId,
+      customId,
       resumeId,
       resume: updated,
       etag: got.etag,
@@ -51,5 +48,5 @@ export const revokeRoute = async (event) => {
     }
   }
 
-  return noContent();
+  return c.body(null, 204);
 };

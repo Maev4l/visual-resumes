@@ -1,8 +1,6 @@
 // POST /api/resumes/{id}/photo — presigned PUT to the raw upload prefix.
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { ok, error } from '../lib/http.js';
-import { extractUser } from '../lib/auth.js';
 import { getResume, photoKey, photoUploadKey } from '../lib/storage-private.js';
 import { config } from '../config.js';
 
@@ -21,26 +19,25 @@ const EXPIRES = 300; // seconds
  *   uploadUrl — presigned PUT for photo-uploads
  *   photoKey  — deterministic final key the client should persist on resume.photoKey
  */
-export const photoUploadUrl = async (event) => {
-  const user = extractUser(event);
-  const resumeId = event.pathParameters?.id;
-  if (!resumeId) return error(400, 'BadRequest', 'missing id path parameter');
+export const photoUploadUrl = async (c) => {
+  const customId = c.get('customId');
+  const resumeId = c.req.param('id');
 
   // Enforce the resume exists + belongs to the caller before minting a URL, otherwise
   // we'd hand out usable URLs for non-owned resume IDs (IAM would still block at S3
   // but cheap to fail fast).
   const got = await getResume({
     bucket: config.storageBucket,
-    customId: user.customId,
+    customId,
     resumeId,
   });
-  if (!got) return error(404, 'NotFound', `resume ${resumeId} not found`);
-  if (got.resume.ownerCustomId !== user.customId) {
-    return error(403, 'Forbidden', 'not your resume');
+  if (!got) return c.json({ error: 'NotFound', message: `resume ${resumeId} not found` }, 404);
+  if (got.resume.ownerCustomId !== customId) {
+    return c.json({ error: 'Forbidden', message: 'not your resume' }, 403);
   }
 
-  const uploadKey = photoUploadKey(user.customId, resumeId);
-  const finalPhotoKey = photoKey(user.customId, resumeId);
+  const uploadKey = photoUploadKey(customId, resumeId);
+  const finalPhotoKey = photoKey(customId, resumeId);
 
   // Content-Type is whatever the browser sends; the image-resizer normalizes to WebP.
   const uploadUrl = await getSignedUrl(
@@ -52,5 +49,5 @@ export const photoUploadUrl = async (event) => {
     { expiresIn: EXPIRES },
   );
 
-  return ok({ uploadUrl, photoKey: finalPhotoKey, expiresIn: EXPIRES, maxBytes: MAX_BYTES });
+  return c.json({ uploadUrl, photoKey: finalPhotoKey, expiresIn: EXPIRES, maxBytes: MAX_BYTES });
 };
