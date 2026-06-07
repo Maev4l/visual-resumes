@@ -17,8 +17,5 @@
     "lint": "yarn --cwd packages/editor lint && yarn --cwd packages/functions lint",
     "test": "yarn --cwd packages/editor test && yarn --cwd packages/functions test",
     "deploy": "yarn backend:deploy && yarn frontend:deploy"
-  },
-  "engines": {
-    "node": "22"
   }
 }

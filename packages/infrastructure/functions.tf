@@ -23,7 +23,7 @@ module "api" {
 
   zip = {
     filename = "${path.module}/../functions/api/dist/api.zip"
-    runtime  = "nodejs22.x"
+    runtime  = "nodejs24.x"
     # AWS_LAMBDA_EXEC_WRAPPER redirects managed-runtime startup to LWA's /opt/bootstrap,
     # which then execs this handler value as a shell command. run.sh just `exec node index.js`.
     handler = "run.sh"

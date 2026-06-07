@@ -14,7 +14,7 @@ mkdir -p "$DIR/bin"
   "$DIR/src/server.js" \
   --bundle \
   --platform=node \
-  --target=node22 \
+  --target=node24 \
   --format=esm \
   --outfile="$DIR/bin/index.js" \
   --banner:js='import { createRequire as __createRequire } from "module"; const require = __createRequire(import.meta.url);' \

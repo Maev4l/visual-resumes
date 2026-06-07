@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bundle api/src/server.js → api/bin/index.js (ESM, AWS SDK externalized — Lambda Node 22 ships v3).
+# Bundle api/src/server.js → api/bin/index.js (ESM, AWS SDK externalized — Lambda Node 24 ships v3).
 # Emit run.sh wrapper that AWS Lambda Web Adapter execs to start the Hono HTTP server.
 # Zip bin/ → dist/api.zip for Terraform to pick up.
 set -euo pipefail
@@ -15,7 +15,7 @@ mkdir -p "$DIR/bin" "$DIR/dist"
   "$DIR/src/server.js" \
   --bundle \
   --platform=node \
-  --target=node22 \
+  --target=node24 \
   --format=esm \
   --outfile="$DIR/bin/index.js" \
   --banner:js='import { createRequire as __createRequire } from "module"; const require = __createRequire(import.meta.url);' \
