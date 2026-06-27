@@ -63,3 +63,8 @@ output "editor_runtime_config" {
   })
   sensitive = true
 }
+
+output "cloudfront_logs_bucket" {
+  description = "CloudFront access logs (Parquet, 90-day retention). Standard logging v2 → raw/app/year=.../month=.../day=.../."
+  value       = local.bucket_logs
+}

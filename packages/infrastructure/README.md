@@ -59,3 +59,15 @@ packages/editor/scripts/deploy-placeholder.sh
 | `cognito_hosted_ui_origin` | `https://platform-idp-auth.isnan.eu` |
 | `image_tag` | `latest` (deploy pipeline overrides to git SHA) |
 | `log_retention_in_days` | `7` |
+
+## CloudFront access logging
+
+CloudFront access logs are collected via **Standard logging v2** (CloudWatch log delivery) and stored as **Parquet** in a dedicated S3 bucket (`<account-id>-visual-resumes-cloudfront-logs`). Objects land under the Hive-partitioned prefix `raw/app/year=YYYY/month=MM/day=DD/`, which makes the data directly queryable by partition-aware tools without any ETL step.
+
+Each record captures 14 fields: `date`, `time`, `c-ip`, `c-country`, `asn`, `cs-method`, `cs-protocol`, `cs(Host)`, `cs-uri-stem`, `cs-uri-query`, `sc-status`, `x-edge-result-type`, `x-edge-location`, and `cs(User-Agent)`. The bucket lifecycle policy expires objects after **90 days**.
+
+The three CloudWatch delivery resources (`aws_cloudwatch_log_delivery_source`, `aws_cloudwatch_log_delivery_destination`, `aws_cloudwatch_log_delivery`) must be provisioned in **`us-east-1`** because CloudFront's logging control plane is global and only accepts delivery configurations from that region.
+
+**Failure mode:** if the bucket policy conditions (`aws:SourceAccount`, `aws:SourceArn`) are wrong, log delivery fails silently with `AccessDenied` — no error appears in the console or Terraform output. If the `raw/app/` prefix stays empty after triggering requests, the bucket policy is the first thing to check.
+
+No query layer or Athena table is provisioned; the Parquet layout is ready for one but building it is out of scope.
