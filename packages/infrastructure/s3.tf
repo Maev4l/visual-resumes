@@ -2,6 +2,9 @@ locals {
   bucket_editor    = "visual-resumes-editor"
   bucket_storage   = "visual-resumes-storage"
   bucket_published = "visual-resumes-published"
+  # Account-id suffix per the global S3-naming rule (the other buckets predate it).
+  # Dedicated per-app log bucket → clean blast-radius isolation; S3 has no per-bucket fee.
+  bucket_logs = "visual-resumes-cloudfront-logs-${local.account_id}"
 
   # S3 bucket ARNs are deterministic from the name. Precompute so IAM / bucket-policy
   # documents can reference `local.bucket_*_arn` instead of the resource attribute —
@@ -9,6 +12,7 @@ locals {
   bucket_editor_arn    = "arn:aws:s3:::${local.bucket_editor}"
   bucket_storage_arn   = "arn:aws:s3:::${local.bucket_storage}"
   bucket_published_arn = "arn:aws:s3:::${local.bucket_published}"
+  bucket_logs_arn      = "arn:aws:s3:::${local.bucket_logs}"
 }
 
 # ----- Editor bucket (Vite build output; CloudFront-fronted via OAC; default behavior) -----
@@ -89,4 +93,80 @@ resource "aws_s3_bucket_public_access_block" "published" {
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
+}
+
+# ----- CloudFront access-log bucket (delivery-service-only writes; 90-day retention) -----
+# Standard logging v2 delivers Parquet here. See logs.tf for the delivery wiring and
+# docs/superpowers/specs/2026-06-27-cloudfront-access-log-historization-design.md.
+resource "aws_s3_bucket" "cloudfront_logs" {
+  bucket = local.bucket_logs
+  # Allow `terraform destroy` to remove the bucket even when objects remain.
+  force_destroy = true
+}
+
+resource "aws_s3_bucket_public_access_block" "cloudfront_logs" {
+  bucket                  = aws_s3_bucket.cloudfront_logs.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# SSE-S3 (AES256), not KMS: v2 delivery to S3 supports SSE-S3 with no extra grants;
+# SSE-KMS would require key-policy grants for delivery.logs.amazonaws.com (out of scope).
+resource "aws_s3_bucket_server_side_encryption_configuration" "cloudfront_logs" {
+  bucket = aws_s3_bucket.cloudfront_logs.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+# Whole-bucket 90-day expiry: the bucket is dedicated to these logs (everything under
+# raw/app/), so expiring everything is correct and simplest. Abort stale multipart
+# uploads after 3 days so partial delivery writes don't accumulate storage.
+resource "aws_s3_bucket_lifecycle_configuration" "cloudfront_logs" {
+  bucket = aws_s3_bucket.cloudfront_logs.id
+
+  rule {
+    id     = "expire-logs"
+    status = "Enabled"
+    filter {}
+    expiration {
+      days = 90
+    }
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 3
+    }
+  }
+}
+
+# Grant the CloudWatch Logs delivery service write access. WHY the conditions matter:
+# if aws:SourceAccount / aws:SourceArn / s3:x-amz-acl are missing or wrong, or Resource
+# doesn't cover where logs land, delivery SILENTLY fails with AccessDenied — no logs
+# appear and nothing surfaces on the distribution. Whole-bucket Resource ("/*") sidesteps
+# the prefix-mismatch trap AWS documents. SourceArn scopes to this account's us-east-1
+# delivery sources.
+resource "aws_s3_bucket_policy" "cloudfront_logs" {
+  bucket = aws_s3_bucket.cloudfront_logs.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "AWSLogsDeliveryWrite"
+      Effect    = "Allow"
+      Principal = { Service = "delivery.logs.amazonaws.com" }
+      Action    = "s3:PutObject"
+      Resource  = "${local.bucket_logs_arn}/*"
+      Condition = {
+        StringEquals = {
+          "s3:x-amz-acl"      = "bucket-owner-full-control"
+          "aws:SourceAccount" = local.account_id
+        }
+        ArnLike = {
+          "aws:SourceArn" = "arn:aws:logs:us-east-1:${local.account_id}:delivery-source:*"
+        }
+      }
+    }]
+  })
 }
