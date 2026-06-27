@@ -62,7 +62,7 @@ packages/editor/scripts/deploy-placeholder.sh
 
 ## CloudFront access logging
 
-CloudFront access logs are collected via **Standard logging v2** (CloudWatch log delivery) and stored as **Parquet** in a dedicated S3 bucket (`<account-id>-visual-resumes-cloudfront-logs`). Objects land under the Hive-partitioned prefix `raw/app/year=YYYY/month=MM/day=DD/`, which makes the data directly queryable by partition-aware tools without any ETL step.
+CloudFront access logs are collected via **Standard logging v2** (CloudWatch log delivery) and stored as **Parquet** in a dedicated S3 bucket (`visual-resumes-cloudfront-logs-<account-id>`). Objects land under the Hive-partitioned prefix `raw/app/year=YYYY/month=MM/day=DD/`, which makes the data directly queryable by partition-aware tools without any ETL step.
 
 Each record captures 14 fields: `date`, `time`, `c-ip`, `c-country`, `asn`, `cs-method`, `cs-protocol`, `cs(Host)`, `cs-uri-stem`, `cs-uri-query`, `sc-status`, `x-edge-result-type`, `x-edge-location`, and `cs(User-Agent)`. The bucket lifecycle policy expires objects after **90 days**.
 
