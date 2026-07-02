@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "lint": "eslint . && cd ../shared && eslint .",
+    "lint": "oxlint && cd ../shared && oxlint",
     "test": "node --test 'api/**/*.test.js' 'image-resizer/**/*.test.js' 'renderer/**/*.test.js' '../shared/**/*.test.js'",
     "build": "yarn build:api && yarn build:image-resizer && yarn build:renderer",
     "build:api": "api/scripts/build.sh",
@@ -28,10 +28,8 @@
     "ulid": "2.4.0"
   },
   "devDependencies": {
-    "@eslint/js": "9.18.0",
     "aws-sdk-client-mock": "4.1.0",
     "esbuild": "0.24.2",
-    "eslint": "9.18.0",
-    "globals": "15.14.0"
+    "oxlint": "1.71.0"
   }
 }
