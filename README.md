@@ -19,6 +19,8 @@ See `packages/infrastructure/README.md`.
 
 ## Development
 
-- `yarn frontend:dev` — run editor against the deployed API
-- `yarn infra:plan` — preview Terraform changes
-- `yarn deploy` — full deploy (backend then frontend)
+Orchestration is driven by the root `Makefile`:
+
+- `make frontend-serve` — run editor against the deployed API
+- `make infra-plan` — preview Terraform changes
+- `make deploy` — full deploy (backend then frontend)
