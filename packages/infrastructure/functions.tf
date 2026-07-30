@@ -14,7 +14,7 @@ locals {
 # ----- api Lambda (zip + LWA layer) -----
 
 module "api" {
-  source        = "github.com/Maev4l/terraform-modules//modules/lambda-function?ref=v1.7.1"
+  source        = "github.com/Maev4l/terraform-modules//modules/lambda-function?ref=v1.8.1"
   function_name = "visual-resumes-api"
 
   # LWA's extension intercepts the Lambda runtime API and forwards events as HTTP
@@ -61,7 +61,7 @@ data "aws_ecr_image" "renderer" {
 }
 
 module "renderer" {
-  source        = "github.com/Maev4l/terraform-modules//modules/lambda-function?ref=v1.7.1"
+  source        = "github.com/Maev4l/terraform-modules//modules/lambda-function?ref=v1.8.1"
   function_name = "visual-resumes-renderer"
 
   image = {
@@ -99,7 +99,7 @@ data "aws_ecr_image" "image_resizer" {
 }
 
 module "image_resizer" {
-  source        = "github.com/Maev4l/terraform-modules//modules/lambda-function?ref=v1.7.1"
+  source        = "github.com/Maev4l/terraform-modules//modules/lambda-function?ref=v1.8.1"
   function_name = "visual-resumes-image-resizer"
 
   image = {
@@ -116,7 +116,7 @@ module "image_resizer" {
 }
 
 module "image_resizer_s3_trigger" {
-  source = "github.com/Maev4l/terraform-modules//modules/lambda-trigger-s3?ref=v1.7.1"
+  source = "github.com/Maev4l/terraform-modules//modules/lambda-trigger-s3?ref=v1.8.1"
 
   function_name = module.image_resizer.function_name
   function_arn  = module.image_resizer.function_arn
@@ -135,7 +135,7 @@ module "image_resizer_s3_trigger" {
 # ----- API Gateway trigger (covers api + renderer route sets) -----
 
 module "apigw" {
-  source   = "github.com/Maev4l/terraform-modules//modules/lambda-trigger-apigw?ref=v1.7.1"
+  source   = "github.com/Maev4l/terraform-modules//modules/lambda-trigger-apigw?ref=v1.8.1"
   api_name = "visual-resumes"
 
   # Fronted by CloudFront via the execute-api endpoint — must leave it enabled.

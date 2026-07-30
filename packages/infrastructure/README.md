@@ -15,7 +15,7 @@ Region `eu-central-1`, backend S3 bucket `global-tf-states` with `use_lockfile =
    ```bash
    aws ssm get-parameter --name platform.idp.app-clients --query 'Parameter.Value' --output text | jq '."visual-resumes"'
    ```
-2. **Plan 0b applied** — `terraform-modules/lambda-trigger-apigw` rewritten and a new tag published. Update the `?ref=` in `apigw.tf` to that tag.
+2. **`terraform-modules` reachable** — all module `?ref=` pins live in `functions.tf`, currently `v1.8.1`.
 3. **Stub container images in ECR** — see Bootstrap below.
 
 ## Bootstrap (first-time apply)
